@@ -71,16 +71,6 @@ function AuthPage() {
     navigate({ to: "/dashboard" });
   }
 
-  async function google() {
-    // Supabase redirects the browser to Google, so there is nothing to navigate
-    // to on success — control only returns here if the handoff itself failed.
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: `${window.location.origin}/dashboard` },
-    });
-    if (error) toast.error(error.message);
-  }
-
   return (
     <main className="hero-bg flex min-h-screen items-center justify-center px-5 py-14">
       <div className="w-full max-w-md">
@@ -164,14 +154,6 @@ function AuthPage() {
               </form>
             </TabsContent>
           </Tabs>
-
-          <div className="my-5 flex items-center gap-3 text-xs text-muted-foreground">
-            <span className="h-px flex-1 bg-border" /> or <span className="h-px flex-1 bg-border" />
-          </div>
-
-          <Button variant="secondary" className="w-full" onClick={google}>
-            Continue with Google
-          </Button>
         </div>
       </div>
     </main>
