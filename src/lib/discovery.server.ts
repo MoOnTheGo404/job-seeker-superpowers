@@ -126,12 +126,43 @@ export function hostFromUrl(url: string): string | null {
   }
 }
 
-/** Try to confirm a company website exists and return its canonical host. */
+/**
+ * Confirm a company website actually resolves, and return its canonical host.
+ *
+ * The model can hallucinate a plausible-looking domain, and an unverified one
+ * sends crawlCompanyEmails down a dozen dead-end requests. A bot-blocked
+ * homepage still answers with *some* HTTP status, so treat any response as
+ * proof the host exists and only reject when the connection itself fails.
+ */
 export async function verifyDomain(domain: string): Promise<string | null> {
-  const clean = domain.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/^www\./, "");
+  const clean = domain
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/\/.*$/, "")
+    .replace(/^www\./, "");
   if (!/^[a-z0-9.-]+\.[a-z]{2,24}$/.test(clean)) return null;
-  const html = await fetchText(`https://${clean}`, 7000);
-  return html ? clean : clean; // keep the domain even if the homepage blocks bots
+  return (await domainResponds(clean)) ? clean : null;
+}
+
+async function domainResponds(host: string, timeoutMs = 7000): Promise<boolean> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    // HEAD keeps this cheap. A 403/404/405 still proves the host resolves —
+    // only DNS failure, a refused connection, or a timeout throws.
+    await fetch(`https://${host}`, {
+      method: "HEAD",
+      headers: { "user-agent": UA },
+      signal: controller.signal,
+      redirect: "follow",
+    });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function classifyEmail(email: string): boolean {
@@ -158,7 +189,10 @@ function extractEmails(html: string, sourceUrl: string, domain?: string): FoundE
 
   const out: FoundEmail[] = [];
   for (const candidate of raw) {
-    const email = candidate.trim().toLowerCase().replace(/^[.,;:]+|[.,;:]+$/g, "");
+    const email = candidate
+      .trim()
+      .toLowerCase()
+      .replace(/^[.,;:]+|[.,;:]+$/g, "");
     if (!/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,24}$/.test(email)) continue;
     if (EMAIL_NOISE.some((n) => email.includes(n))) continue;
     if (domain && !email.endsWith(`@${domain}`) && !email.endsWith(`.${domain}`)) {
@@ -201,9 +235,12 @@ export async function crawlCompanyEmails(domain: string): Promise<FoundEmail[]> 
   const seen = new Map<string, FoundEmail>();
   for (const found of results.flat()) {
     const existing = seen.get(found.email);
-    if (!existing || (found.recruitingRelevant && !existing.recruitingRelevant)) seen.set(found.email, found);
+    if (!existing || (found.recruitingRelevant && !existing.recruitingRelevant))
+      seen.set(found.email, found);
   }
-  return [...seen.values()].sort((a, b) => Number(b.recruitingRelevant) - Number(a.recruitingRelevant)).slice(0, 12);
+  return [...seen.values()]
+    .sort((a, b) => Number(b.recruitingRelevant) - Number(a.recruitingRelevant))
+    .slice(0, 12);
 }
 
 const SEARCH_ENGINES = [
@@ -214,7 +251,14 @@ const SEARCH_ENGINES = [
   (q: string) => `https://www.bing.com/search?q=${encodeURIComponent(q)}&format=rss`,
 ];
 
-const ENGINE_HOSTS = ["duckduckgo.com", "mojeek.com", "bing.com", "microsoft.com", "google.com", "marcia.cc"];
+const ENGINE_HOSTS = [
+  "duckduckgo.com",
+  "mojeek.com",
+  "bing.com",
+  "microsoft.com",
+  "google.com",
+  "marcia.cc",
+];
 
 function parseResults(html: string): { title: string; url: string; snippet: string }[] {
   const out: { title: string; url: string; snippet: string }[] = [];
@@ -258,8 +302,15 @@ function parseResults(html: string): { title: string; url: string; snippet: stri
   return out;
 }
 
+/** True when a real search API is configured, so we can skip scraper throttling. */
+export function hasSearchApi(): boolean {
+  return Boolean(process.env["SERPER_API_KEY"]);
+}
+
 /** Optional: a real search API key gives far better person-level results. */
-async function serperSearch(query: string): Promise<{ title: string; url: string; snippet: string }[] | null> {
+async function serperSearch(
+  query: string,
+): Promise<{ title: string; url: string; snippet: string }[] | null> {
   const key = process.env["SERPER_API_KEY"];
   if (!key) return null;
   try {
@@ -269,7 +320,9 @@ async function serperSearch(query: string): Promise<{ title: string; url: string
       body: JSON.stringify({ q: query, num: 20 }),
     });
     if (!res.ok) return null;
-    const json = (await res.json()) as { organic?: { title?: string; link?: string; snippet?: string }[] };
+    const json = (await res.json()) as {
+      organic?: { title?: string; link?: string; snippet?: string }[];
+    };
     return (json.organic ?? [])
       .filter((r) => r.link)
       .map((r) => ({ title: r.title ?? "", url: r.link!, snippet: r.snippet ?? "" }));
@@ -279,14 +332,20 @@ async function serperSearch(query: string): Promise<{ title: string; url: string
 }
 
 /** Public web search across a few engines, with fallbacks when one throttles us. */
-export async function webSearch(query: string): Promise<{ title: string; url: string; snippet: string }[]> {
+export async function webSearch(
+  query: string,
+): Promise<{ title: string; url: string; snippet: string }[]> {
   const viaApi = await serperSearch(query);
   if (viaApi && viaApi.length) return viaApi.slice(0, 20);
 
   for (const build of SEARCH_ENGINES) {
     const html = await fetchText(build(query), 9000);
     if (!html) continue;
-    if (/unusual traffic|captcha|are you a robot|not a bot|verifying your browser/i.test(html.slice(0, 4000)))
+    if (
+      /unusual traffic|captcha|are you a robot|not a bot|verifying your browser/i.test(
+        html.slice(0, 4000),
+      )
+    )
       continue;
     const results = parseResults(html);
     if (results.length) return results.slice(0, 20);
@@ -295,14 +354,17 @@ export async function webSearch(query: string): Promise<{ title: string; url: st
 }
 
 /** Find public LinkedIn profiles of recruiters / hiring people at a company. */
-export async function findLinkedInProfiles(company: string, roleTitle: string): Promise<FoundProfile[]> {
+export async function findLinkedInProfiles(
+  company: string,
+  roleTitle: string,
+): Promise<FoundProfile[]> {
   const queries = [
     `site:linkedin.com/in "${company}" recruiter`,
     `site:linkedin.com/in "${company}" talent acquisition`,
     `site:linkedin.com/in "${company}" hiring manager ${roleTitle}`,
   ];
   const seen = new Map<string, FoundProfile>();
-  for (const query of queries) {
+  for (const [index, query] of queries.entries()) {
     if (seen.size >= 8) break;
     const results = await webSearch(query);
     for (const r of results) {
@@ -317,7 +379,12 @@ export async function findLinkedInProfiles(company: string, roleTitle: string): 
       if (!name) continue;
       seen.set(url, { name, title, linkedinUrl: url, sourceUrl: r.url });
     }
-    await new Promise((r) => setTimeout(r, 600));
+    // Space out scraped-engine queries so they don't throttle us. A real search
+    // API needs no such courtesy, and there is nothing to wait for after the
+    // final query either way.
+    if (!hasSearchApi() && index < queries.length - 1) {
+      await new Promise((r) => setTimeout(r, 600));
+    }
   }
   return [...seen.values()].slice(0, 8);
 }
@@ -328,20 +395,28 @@ export async function searchPersonEmail(
   company: string,
   domain: string | null,
 ): Promise<FoundEmail | null> {
-  const queries = [domain ? `"${name}" "@${domain}"` : `"${name}" "${company}" email`];
-  for (const q of queries) {
-    const results = await webSearch(q);
-    for (const r of results.slice(0, 4)) {
-      const inSnippet = extractEmails(r.snippet, r.url, domain ?? undefined);
-      const hit = inSnippet.find((e) => matchesPerson(e.email, name, domain));
-      if (hit) return hit;
+  const query = domain ? `"${name}" "@${domain}"` : `"${name}" "${company}" email`;
+  const results = (await webSearch(query)).slice(0, 4);
 
-      const html = await fetchText(r.url, 7000);
-      if (!html) continue;
-      const found = extractEmails(html, r.url, domain ?? undefined);
-      const match = found.find((e) => matchesPerson(e.email, name, domain));
-      if (match) return match;
-    }
+  // Snippets are already in hand — scan them all before paying for any fetch.
+  for (const r of results) {
+    const hit = extractEmails(r.snippet, r.url, domain ?? undefined).find((e) =>
+      matchesPerson(e.email, name, domain),
+    );
+    if (hit) return hit;
+  }
+
+  // Nothing in the snippets, so fetch the pages — in parallel, since a serial
+  // chain here is what pushed discoverContacts past the request timeout.
+  const pages = await Promise.all(
+    results.map(async (r) => ({ url: r.url, html: await fetchText(r.url, 7000) })),
+  );
+  for (const page of pages) {
+    if (!page.html) continue;
+    const match = extractEmails(page.html, page.url, domain ?? undefined).find((e) =>
+      matchesPerson(e.email, name, domain),
+    );
+    if (match) return match;
   }
   return null;
 }

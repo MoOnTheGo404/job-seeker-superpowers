@@ -12,7 +12,8 @@ export interface AnalyzedJob {
 export const analyzeJob = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: { jobUrl?: string; jobText?: string }) => {
-    if (!input.jobUrl && !input.jobText) throw new Error("Paste a job link or the job description.");
+    if (!input.jobUrl && !input.jobText)
+      throw new Error("Paste a job link or the job description.");
     return input;
   })
   .handler(async ({ data }): Promise<AnalyzedJob> => {
@@ -53,7 +54,8 @@ export const analyzeJob = createServerFn({ method: "POST" })
       const host = hostFromUrl(data.jobUrl);
       if (host && !isJobBoard(host)) parsed.company_domain = host;
     }
-    if (!parsed.company) throw new Error("Couldn't identify the company. Try pasting the full job description.");
+    if (!parsed.company)
+      throw new Error("Couldn't identify the company. Try pasting the full job description.");
     return parsed;
   });
 
@@ -101,8 +103,19 @@ export const discoverContacts = createServerFn({ method: "POST" })
 
     const contacts: DiscoveredContact[] = [];
 
-    for (const profile of profiles.slice(0, 6)) {
-      const personEmail = await searchPersonEmail(profile.name, target.company, domain);
+    // Look these up concurrently. Serially, six profiles meant six search calls
+    // plus up to 24 page fetches back to back, which blew the request timeout
+    // long before the handler could return.
+    const topProfiles = profiles.slice(0, 6);
+    const personEmails = await Promise.all(
+      topProfiles.map((profile) =>
+        // One profile failing to resolve shouldn't sink the whole discovery run.
+        searchPersonEmail(profile.name, target.company, domain).catch(() => null),
+      ),
+    );
+
+    topProfiles.forEach((profile, index) => {
+      const personEmail = personEmails[index] ?? null;
       contacts.push({
         name: profile.name,
         title: profile.title || null,
@@ -115,14 +128,17 @@ export const discoverContacts = createServerFn({ method: "POST" })
           ? "Email found published on a public web page (link included)."
           : "No publicly published email found — reach out on LinkedIn instead.",
       });
-    }
+    });
 
     for (const inbox of inboxEmails.filter((e) => e.recruitingRelevant).slice(0, 4)) {
       contacts.push({
         name: null,
         title: "Company recruiting inbox",
         linkedin_url: null,
-        linkedin_search_url: linkedInPeopleSearchUrl(target.company, "recruiter talent acquisition"),
+        linkedin_search_url: linkedInPeopleSearchUrl(
+          target.company,
+          "recruiter talent acquisition",
+        ),
         email: inbox.email,
         email_source_url: inbox.sourceUrl,
         email_status: "team_inbox",
@@ -178,9 +194,16 @@ export const draftOutreach = createServerFn({ method: "POST" })
       .maybeSingle();
     if (!contact) throw new Error("Contact not found.");
 
-    const { data: profile } = await supabase.from("profiles").select("full_name").eq("id", userId).maybeSingle();
-    const target = (contact as unknown as { job_targets: { company: string; role_title: string; job_description: string | null } })
-      .job_targets;
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("full_name")
+      .eq("id", userId)
+      .maybeSingle();
+    const target = (
+      contact as unknown as {
+        job_targets: { company: string; role_title: string; job_description: string | null };
+      }
+    ).job_targets;
 
     const limit = data.channel === "linkedin" ? "under 280 characters" : "under 160 words";
     const message = await askAI([

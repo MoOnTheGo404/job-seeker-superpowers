@@ -18,7 +18,13 @@ import { AppHeader } from "@/components/AppHeader";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { discoverContacts, draftOutreach } from "@/lib/recruiters.functions";
@@ -29,10 +35,14 @@ export const Route = createFileRoute("/target/$id")({
       { title: "Recruiter contacts — ReachPoint" },
       {
         name: "description",
-        content: "Recruiters, hiring managers, LinkedIn profiles and verified public emails for this application.",
+        content:
+          "Recruiters, hiring managers, LinkedIn profiles and verified public emails for this application.",
       },
       { property: "og:title", content: "Recruiter contacts — ReachPoint" },
-      { property: "og:description", content: "Every email comes with the public page it was found on." },
+      {
+        property: "og:description",
+        content: "Every email comes with the public page it was found on.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -57,7 +67,11 @@ function TargetPage() {
     queryKey: ["target", id],
     enabled: Boolean(user),
     queryFn: async () => {
-      const { data, error } = await supabase.from("job_targets").select("*").eq("id", id).maybeSingle();
+      const { data, error } = await supabase
+        .from("job_targets")
+        .select("*")
+        .eq("id", id)
+        .maybeSingle();
       if (error) throw new Error(error.message);
       return data;
     },
@@ -98,7 +112,10 @@ function TargetPage() {
     <div className="min-h-screen">
       <AppHeader email={user?.email ?? null} />
       <main className="mx-auto w-full max-w-5xl px-5 py-10">
-        <Link to="/dashboard" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
+        <Link
+          to="/dashboard"
+          className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+        >
           <ArrowLeft className="size-4" /> All job targets
         </Link>
 
@@ -137,7 +154,11 @@ function TargetPage() {
                   </SelectContent>
                 </Select>
                 <Button onClick={() => discover.mutate()} disabled={discover.isPending}>
-                  {discover.isPending ? <Loader2 className="size-4 animate-spin" /> : <Radar className="size-4" />}
+                  {discover.isPending ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Radar className="size-4" />
+                  )}
                   {discover.isPending ? "Searching the web…" : "Find recruiters"}
                 </Button>
               </div>
@@ -149,8 +170,8 @@ function TargetPage() {
           <h2 className="text-lg font-semibold">Contacts</h2>
           {discover.isPending && (
             <p className="text-sm text-muted-foreground">
-              Searching public sources for recruiters, hiring managers and published emails. This can take up to a
-              minute.
+              Searching public sources for recruiters, hiring managers and published emails. This
+              can take up to a minute.
             </p>
           )}
           {!discover.isPending && contacts.data?.length === 0 && (
@@ -158,7 +179,9 @@ function TargetPage() {
               No contacts yet — hit “Find recruiters” to search public sources.
             </p>
           )}
-          {contacts.data?.map((c) => <ContactCard key={c.id} contact={c} />)}
+          {contacts.data?.map((c) => (
+            <ContactCard key={c.id} contact={c} />
+          ))}
         </section>
       </main>
     </div>
@@ -179,7 +202,9 @@ interface ContactRow {
 
 function ContactCard({ contact }: { contact: ContactRow }) {
   const draft = useServerFn(draftOutreach);
-  const [channel, setChannel] = useState<"email" | "linkedin">(contact.email ? "email" : "linkedin");
+  const [channel, setChannel] = useState<"email" | "linkedin">(
+    contact.email ? "email" : "linkedin",
+  );
   const [message, setMessage] = useState("");
   const [subject, setSubject] = useState<string | null>(null);
 
@@ -281,8 +306,17 @@ function ContactCard({ contact }: { contact: ContactRow }) {
               <SelectItem value="linkedin">LinkedIn note</SelectItem>
             </SelectContent>
           </Select>
-          <Button variant="secondary" size="sm" onClick={() => generate.mutate()} disabled={generate.isPending}>
-            {generate.isPending ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => generate.mutate()}
+            disabled={generate.isPending}
+          >
+            {generate.isPending ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Sparkles className="size-4" />
+            )}
             Draft message
           </Button>
         </div>

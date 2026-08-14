@@ -20,7 +20,8 @@ export const Route = createFileRoute("/dashboard")({
       { title: "Your job targets — ReachPoint" },
       {
         name: "description",
-        content: "Add a job posting and ReachPoint finds the recruiter or hiring manager behind it.",
+        content:
+          "Add a job posting and ReachPoint finds the recruiter or hiring manager behind it.",
       },
       { property: "og:title", content: "Your job targets — ReachPoint" },
       { property: "og:description", content: "Track applications and the people behind them." },
@@ -124,7 +125,11 @@ function Dashboard() {
             disabled={addTarget.isPending || (!jobUrl && !jobText)}
             onClick={() => addTarget.mutate()}
           >
-            {addTarget.isPending ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+            {addTarget.isPending ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Plus className="size-4" />
+            )}
             {addTarget.isPending ? "Reading the posting…" : "Add job target"}
           </Button>
         </div>
@@ -132,7 +137,9 @@ function Dashboard() {
         <div className="mt-10 space-y-3">
           {targets.isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
           {targets.data?.length === 0 && (
-            <p className="text-sm text-muted-foreground">No job targets yet. Add your first one above.</p>
+            <p className="text-sm text-muted-foreground">
+              No job targets yet. Add your first one above.
+            </p>
           )}
           {targets.data?.map((t) => (
             <Link

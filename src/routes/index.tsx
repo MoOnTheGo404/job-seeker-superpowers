@@ -16,7 +16,8 @@ export const Route = createFileRoute("/")({
       { property: "og:title", content: "ReachPoint — Find the recruiter behind any job posting" },
       {
         property: "og:description",
-        content: "Verified recruiter contacts, LinkedIn profiles and outreach drafts for every application.",
+        content:
+          "Verified recruiter contacts, LinkedIn profiles and outreach drafts for every application.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -62,8 +63,9 @@ function Landing() {
                 Find the person actually reading your application.
               </h1>
               <p className="mt-5 max-w-2xl text-lg text-muted-foreground">
-                ReachPoint turns any job posting into a shortlist of real recruiters and hiring managers — with their
-                LinkedIn profiles, verifiable public emails, and a short message you can actually send.
+                ReachPoint turns any job posting into a shortlist of real recruiters and hiring
+                managers — with their LinkedIn profiles, verifiable public emails, and a short
+                message you can actually send.
               </p>
               <div className="mt-8 flex flex-wrap gap-3">
                 <Button asChild size="lg" className="glow-ring">
@@ -99,8 +101,8 @@ function Landing() {
             <div>
               <h2 className="text-2xl font-semibold">Stop applying into the void</h2>
               <p className="mt-2 max-w-xl text-sm text-muted-foreground">
-                Track every application, keep contacts and outreach in one place, and follow up like someone who did
-                their homework.
+                Track every application, keep contacts and outreach in one place, and follow up like
+                someone who did their homework.
               </p>
             </div>
             <Button asChild size="lg">
@@ -113,7 +115,8 @@ function Landing() {
       </main>
 
       <footer className="border-t border-border/70 py-8 text-center text-xs text-muted-foreground">
-        ReachPoint only surfaces information already published publicly, with a source link for every email.
+        ReachPoint only surfaces information already published publicly, with a source link for
+        every email.
       </footer>
     </div>
   );

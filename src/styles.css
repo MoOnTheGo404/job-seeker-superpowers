@@ -103,11 +103,8 @@
   --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
   --font-body: "DM Sans", ui-sans-serif, system-ui, sans-serif;
 
-  --gradient-hero: radial-gradient(
-      120% 90% at 12% 0%,
-      oklch(0.31 0.07 258 / 0.9) 0%,
-      transparent 60%
-    ),
+  --gradient-hero:
+    radial-gradient(120% 90% at 12% 0%, oklch(0.31 0.07 258 / 0.9) 0%, transparent 60%),
     radial-gradient(90% 80% at 92% 8%, oklch(0.5 0.12 79 / 0.22) 0%, transparent 62%),
     linear-gradient(180deg, oklch(0.18 0.03 258) 0%, oklch(0.16 0.026 258) 100%);
   --gradient-panel: linear-gradient(160deg, oklch(0.235 0.032 258) 0%, oklch(0.2 0.028 258) 100%);
@@ -156,4 +153,3 @@
 @utility glow-ring {
   box-shadow: var(--shadow-glow);
 }
-
