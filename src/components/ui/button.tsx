@@ -4,24 +4,35 @@ import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "@/lib/utils";
 
+/*
+ * Win95 controls have no hover state and no transition — they only change on
+ * press, when the bevel inverts and the label shifts a pixel down-right. The
+ * `active:bevel-pressed` utility does both.
+ *
+ * Disabled buttons don't fade; they get the embossed gray treatment (a white
+ * shadow offset behind dark-gray text), which is what Win95 actually did.
+ */
+const w95Raised =
+  "bevel-out text-black active:bevel-pressed disabled:text-w95-shadow disabled:[text-shadow:1px_1px_0_var(--w95-light)]";
+
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 disabled:cursor-not-allowed [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+  "inline-flex items-center justify-center gap-1.5 whitespace-nowrap text-[11px] font-normal select-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-dotted focus-visible:outline-black focus-visible:outline-offset-[-4px] disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:size-3.5 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground shadow hover:bg-primary/90",
-        destructive: "bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90",
-        outline:
-          "border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground",
-        secondary: "bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80",
-        ghost: "hover:bg-accent hover:text-accent-foreground",
-        link: "text-primary underline-offset-4 hover:underline",
+        default: w95Raised,
+        destructive: `${w95Raised} text-destructive`,
+        outline: w95Raised,
+        secondary: w95Raised,
+        // The only genuinely flat control in the OS: toolbar-style text.
+        ghost: "text-black hover:bg-w95-title hover:text-white disabled:text-w95-shadow",
+        link: "text-[#0000ee] underline underline-offset-2 hover:text-[#551a8b]",
       },
       size: {
-        default: "h-9 px-4 py-2",
-        sm: "h-8 rounded-md px-3 text-xs",
-        lg: "h-10 rounded-md px-8",
-        icon: "h-9 w-9",
+        default: "min-h-[23px] px-4 py-[3px]",
+        sm: "min-h-[21px] px-3 py-[2px]",
+        lg: "min-h-[27px] px-6 py-[5px]",
+        icon: "size-[23px] p-0",
       },
     },
     defaultVariants: {

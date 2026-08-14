@@ -1,31 +1,34 @@
 @import "tailwindcss" source(none);
 @source "../src";
-@import "tw-animate-css";
-
-@custom-variant dark (&:is(.dark *));
 
 /*
- * Design system definition.
+ * Windows 95 design system.
  *
- * The @theme inline block maps CSS custom properties to Tailwind utility
- * classes (e.g. --color-primary -> bg-primary, text-primary).
+ * Everything here is built from four grays and one navy. The look does not come
+ * from color — it comes from *bevels*: every raised control has a white top-left
+ * and a black bottom-right, and every sunken one has that reversed. Get the
+ * bevels right and the rest follows.
  *
- * The :root and .dark blocks define the actual color values using oklch.
- * All colors MUST use oklch format.
+ * Bevel anatomy (a raised button, outside -> inside):
+ *   outer top/left     #ffffff   (--w95-light)
+ *   outer bottom/right #000000   (--w95-darkest)
+ *   inner top/left     #dfdfdf   (--w95-face-light)
+ *   inner bottom/right #808080   (--w95-shadow)
  *
- * To add a new semantic color:
- * 1. Add the variable to :root (light value) and .dark (dark value)
- * 2. Register it in @theme inline as --color-<name>: var(--<name>)
+ * That's two rings, so it's done with a 2px border plus an inset box-shadow
+ * rather than nested elements. See the .bevel-* utilities at the bottom.
+ *
+ * Corners are square everywhere. --radius is 0 and should stay 0.
  */
 
 @theme inline {
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
-  --radius-2xl: calc(var(--radius) + 8px);
-  --radius-3xl: calc(var(--radius) + 12px);
-  --radius-4xl: calc(var(--radius) + 16px);
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+  --radius-2xl: 0px;
+  --radius-3xl: 0px;
+  --radius-4xl: 0px;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -46,11 +49,6 @@
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-ring-offset-background: var(--background);
-  --color-chart-1: var(--chart-1);
-  --color-chart-2: var(--chart-2);
-  --color-chart-3: var(--chart-3);
-  --color-chart-4: var(--chart-4);
-  --color-chart-5: var(--chart-5);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -62,61 +60,92 @@
 }
 
 :root {
-  --radius: 0.75rem;
+  --radius: 0px;
 
-  /* Ink-blue command deck with a signal-amber accent */
-  --background: oklch(0.17 0.028 258);
-  --foreground: oklch(0.95 0.008 250);
-  --card: oklch(0.213 0.03 258);
-  --card-foreground: oklch(0.95 0.008 250);
-  --popover: oklch(0.205 0.03 258);
-  --popover-foreground: oklch(0.95 0.008 250);
-  --primary: oklch(0.8 0.16 79);
-  --primary-foreground: oklch(0.19 0.03 258);
-  --secondary: oklch(0.26 0.032 258);
-  --secondary-foreground: oklch(0.94 0.008 250);
-  --muted: oklch(0.25 0.028 258);
-  --muted-foreground: oklch(0.71 0.02 253);
-  --accent: oklch(0.62 0.13 205);
-  --accent-foreground: oklch(0.16 0.03 258);
-  --destructive: oklch(0.6 0.2 25);
-  --destructive-foreground: oklch(0.97 0.01 250);
-  --success: oklch(0.72 0.15 156);
-  --success-foreground: oklch(0.17 0.03 258);
-  --border: oklch(0.31 0.03 258);
-  --input: oklch(0.29 0.03 258);
-  --ring: oklch(0.8 0.16 79);
-  --chart-1: oklch(0.8 0.16 79);
-  --chart-2: oklch(0.62 0.13 205);
-  --chart-3: oklch(0.72 0.15 156);
-  --chart-4: oklch(0.65 0.16 20);
-  --chart-5: oklch(0.66 0.12 300);
-  --sidebar: oklch(0.19 0.03 258);
-  --sidebar-foreground: oklch(0.93 0.008 250);
-  --sidebar-primary: oklch(0.8 0.16 79);
-  --sidebar-primary-foreground: oklch(0.18 0.03 258);
-  --sidebar-accent: oklch(0.25 0.03 258);
-  --sidebar-accent-foreground: oklch(0.93 0.008 250);
-  --sidebar-border: oklch(0.3 0.03 258);
-  --sidebar-ring: oklch(0.8 0.16 79);
+  /* ---- The raw Win95 palette ---- */
+  --w95-face: #c0c0c0; /* button face / window chrome */
+  --w95-face-light: #dfdfdf; /* inner top-left bevel */
+  --w95-light: #ffffff; /* outer top-left bevel */
+  --w95-shadow: #808080; /* inner bottom-right bevel */
+  --w95-darkest: #000000; /* outer bottom-right bevel */
+  --w95-desktop: #008080; /* the famous teal */
+  --w95-title: #000080; /* active title bar navy */
+  --w95-title-inactive: #808080;
+  --w95-field: #ffffff; /* sunken input background */
+  --w95-selection: #000080;
+  --w95-selection-fg: #ffffff;
+  --w95-info-bg: #ffffe1; /* tooltip / help yellow */
 
-  --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
-  --font-body: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  /* ---- Semantic tokens consumed by the shadcn primitives ---- */
+  --background: var(--w95-face);
+  --foreground: #000000;
+  --card: var(--w95-face);
+  --card-foreground: #000000;
+  --popover: var(--w95-face);
+  --popover-foreground: #000000;
+  --primary: var(--w95-face);
+  --primary-foreground: #000000;
+  --secondary: var(--w95-face);
+  --secondary-foreground: #000000;
+  --muted: var(--w95-face);
+  --muted-foreground: #3f3f3f;
+  --accent: var(--w95-selection);
+  --accent-foreground: var(--w95-selection-fg);
+  --destructive: #aa0000;
+  --destructive-foreground: #ffffff;
+  --success: #008000;
+  --success-foreground: #ffffff;
+  --border: var(--w95-shadow);
+  --input: var(--w95-field);
+  --ring: #000000;
+  --sidebar: var(--w95-face);
+  --sidebar-foreground: #000000;
+  --sidebar-primary: var(--w95-title);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: var(--w95-selection);
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: var(--w95-shadow);
+  --sidebar-ring: #000000;
 
-  --gradient-hero:
-    radial-gradient(120% 90% at 12% 0%, oklch(0.31 0.07 258 / 0.9) 0%, transparent 60%),
-    radial-gradient(90% 80% at 92% 8%, oklch(0.5 0.12 79 / 0.22) 0%, transparent 62%),
-    linear-gradient(180deg, oklch(0.18 0.03 258) 0%, oklch(0.16 0.026 258) 100%);
-  --gradient-panel: linear-gradient(160deg, oklch(0.235 0.032 258) 0%, oklch(0.2 0.028 258) 100%);
-  --shadow-soft: 0 1px 0 0 oklch(1 0 0 / 0.05) inset, 0 18px 40px -22px oklch(0.08 0.02 258 / 0.9);
-  --shadow-glow: 0 0 0 1px oklch(0.8 0.16 79 / 0.25), 0 18px 50px -20px oklch(0.8 0.16 79 / 0.35);
+  /*
+   * MS Sans Serif is the real thing but ships only on old Windows. Tahoma is
+   * its direct descendant and is near-identical at UI sizes; Geneva is the
+   * closest thing macOS has. No webfont, so there is no flash of unstyled text.
+   */
+  --font-ui: "MS Sans Serif", "Microsoft Sans Serif", Tahoma, Geneva, Verdana, sans-serif;
+  --font-mono-ui: "Courier New", Courier, monospace;
+
+  /* ---- Cursors ----
+   * The stock Win95 pointers, drawn as 1:1 pixel SVGs. Hotspot coordinates are
+   * the trailing numbers and must stay put or clicks land off-target.
+   */
+  --cursor-arrow:
+    url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMiIgaGVpZ2h0PSIzNSIgdmlld0JveD0iMCAwIDExIDE4IiBzaGFwZS1yZW5kZXJpbmc9ImNyaXNwRWRnZXMiPjxwYXRoIGQ9Ik0wIDAgTDAgMTYgTDQgMTIgTDYgMTcgTDggMTYgTDYgMTEgTDEwIDExIFoiIGZpbGw9IiMwMDAiLz48cGF0aCBkPSJNMSAyIEwxIDEzIEw0IDEwIEw2IDE1IEw3IDE0IEw1IDEwIEw4IDEwIFoiIGZpbGw9IiNmZmYiLz48L3N2Zz4=")
+      0 0,
+    default;
+  --cursor-wait:
+    url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMiIgaGVpZ2h0PSIzMiIgdmlld0JveD0iMCAwIDE2IDE2IiBzaGFwZS1yZW5kZXJpbmc9ImNyaXNwRWRnZXMiPjxwYXRoIGQ9Ik00IDFoOHYzaC0xdjJoLTF2MmgtMXYyaDF2MmgxdjJoMXYzSDR2LTNoMXYtMmgxdi0yaDF2LTJINnYtMkg1VjRINFoiIGZpbGw9IiMwMDAiLz48cGF0aCBkPSJNNSAyaDZ2Mkg1Wm0xIDNoNHYyaC0xdjJIN1Y3SDZabS0xIDdoNnYySDVaIiBmaWxsPSIjZmZmIi8+PHBhdGggZD0iTTYgMTBoNHYySDZaIiBmaWxsPSIjMDBmIi8+PC9zdmc+")
+      16 16,
+    wait;
+  --cursor-text:
+    url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgdmlld0JveD0iMCAwIDE2IDE2IiBzaGFwZS1yZW5kZXJpbmc9ImNyaXNwRWRnZXMiPjxwYXRoIGQ9Ik00IDJoM3YxSDZ2MTBoMXYxSDR2LTFoMVYzSDRaTTkgMmgzdjFoLTF2MTBoMXYxSDl2LTFoMVYzSDlaIiBmaWxsPSIjMDAwIi8+PC9zdmc+")
+      8 8,
+    text;
 }
 
 @theme inline {
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
-  --font-display: var(--font-display);
-  --font-sans: var(--font-body);
+  --color-w95-face: var(--w95-face);
+  --color-w95-desktop: var(--w95-desktop);
+  --color-w95-title: var(--w95-title);
+  --color-w95-field: var(--w95-field);
+  --color-w95-shadow: var(--w95-shadow);
+  --color-w95-light: var(--w95-light);
+  --color-w95-info: var(--w95-info-bg);
+  --font-display: var(--font-ui);
+  --font-sans: var(--font-ui);
+  --font-mono: var(--font-mono-ui);
 }
 
 @layer base {
@@ -124,32 +153,161 @@
     border-color: var(--color-border);
   }
 
+  html {
+    /* Pixel fonts and bevels rely on hard edges; smoothing muddies both. */
+    -webkit-font-smoothing: none;
+    -moz-osx-font-smoothing: unset;
+  }
+
   body {
-    background-color: var(--color-background);
-    color: var(--color-foreground);
-    font-family: var(--font-body);
-    -webkit-font-smoothing: antialiased;
+    background-color: var(--w95-desktop);
+    color: var(--foreground);
+    font-family: var(--font-ui);
+    font-size: 12px;
+    line-height: 1.35;
+    cursor: var(--cursor-arrow);
   }
 
   h1,
   h2,
   h3,
   h4 {
-    font-family: var(--font-display);
-    letter-spacing: -0.02em;
+    font-family: var(--font-ui);
+    font-weight: 700;
+    letter-spacing: 0;
+  }
+
+  /* Win95 had no hand cursor for buttons — everything used the arrow. */
+  button,
+  [role="button"],
+  a {
+    cursor: var(--cursor-arrow);
+  }
+
+  input,
+  textarea {
+    cursor: var(--cursor-text);
+  }
+
+  [aria-busy="true"],
+  .is-busy,
+  .is-busy * {
+    cursor: var(--cursor-wait);
+  }
+
+  /*
+   * Focus is a dotted marching-ants rectangle, not a glow ring. Kept visible
+   * for keyboard users rather than removed for period accuracy.
+   */
+  :focus-visible {
+    outline: 1px dotted #000000;
+    outline-offset: -4px;
+  }
+
+  ::selection {
+    background: var(--w95-selection);
+    color: var(--w95-selection-fg);
   }
 }
 
+/* ---- Bevel utilities ----------------------------------------------------
+ * bevel-out : raised (buttons, window frames, panels)
+ * bevel-in  : sunken (text fields, list boxes, wells)
+ * bevel-out-thin / bevel-in-thin : single-ring variants for status bars,
+ *   group boxes, and anything that shouldn't shout
+ */
+
+@utility bevel-out {
+  border: 2px solid;
+  border-color: var(--w95-light) var(--w95-darkest) var(--w95-darkest) var(--w95-light);
+  box-shadow:
+    inset 1px 1px 0 0 var(--w95-face-light),
+    inset -1px -1px 0 0 var(--w95-shadow);
+  background-color: var(--w95-face);
+}
+
+@utility bevel-in {
+  border: 2px solid;
+  border-color: var(--w95-shadow) var(--w95-light) var(--w95-light) var(--w95-shadow);
+  box-shadow:
+    inset 1px 1px 0 0 var(--w95-darkest),
+    inset -1px -1px 0 0 var(--w95-face-light);
+  background-color: var(--w95-field);
+}
+
+@utility bevel-out-thin {
+  border: 1px solid;
+  border-color: var(--w95-face-light) var(--w95-shadow) var(--w95-shadow) var(--w95-face-light);
+}
+
+@utility bevel-in-thin {
+  border: 1px solid;
+  border-color: var(--w95-shadow) var(--w95-face-light) var(--w95-face-light) var(--w95-shadow);
+}
+
+/* The pressed state: bevels invert and content shifts down-right one pixel. */
+@utility bevel-pressed {
+  border-color: var(--w95-darkest) var(--w95-light) var(--w95-light) var(--w95-darkest);
+  box-shadow: inset 1px 1px 0 0 var(--w95-shadow);
+  padding-top: 1px;
+  padding-left: 1px;
+}
+
+/* ---- Surfaces ---- */
+
+@utility desktop-bg {
+  background-color: var(--w95-desktop);
+}
+
+@utility title-bar {
+  background: linear-gradient(90deg, var(--w95-title) 0%, #1084d0 100%);
+  color: #ffffff;
+  font-weight: 700;
+}
+
+@utility title-bar-inactive {
+  background: linear-gradient(90deg, var(--w95-title-inactive) 0%, #b5b5b5 100%);
+  color: #dfdfdf;
+  font-weight: 700;
+}
+
+/* 50% dither, the standard Win95 disabled/inactive fill. */
+@utility dither {
+  background-image:
+    linear-gradient(
+      45deg,
+      var(--w95-shadow) 25%,
+      transparent 25%,
+      transparent 75%,
+      var(--w95-shadow) 75%
+    ),
+    linear-gradient(
+      45deg,
+      var(--w95-shadow) 25%,
+      transparent 25%,
+      transparent 75%,
+      var(--w95-shadow) 75%
+    );
+  background-size: 2px 2px;
+  background-position:
+    0 0,
+    1px 1px;
+}
+
+/* Legacy utility names kept so unconverted markup doesn't break mid-redesign. */
 @utility surface-panel {
-  background-image: var(--gradient-panel);
-  box-shadow: var(--shadow-soft);
-  border: 1px solid var(--color-border);
+  border: 2px solid;
+  border-color: var(--w95-light) var(--w95-darkest) var(--w95-darkest) var(--w95-light);
+  box-shadow:
+    inset 1px 1px 0 0 var(--w95-face-light),
+    inset -1px -1px 0 0 var(--w95-shadow);
+  background-color: var(--w95-face);
 }
 
 @utility hero-bg {
-  background-image: var(--gradient-hero);
+  background-color: var(--w95-desktop);
 }
 
 @utility glow-ring {
-  box-shadow: var(--shadow-glow);
+  box-shadow: none;
 }

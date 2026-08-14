@@ -1,7 +1,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Radar, ShieldCheck, Search, Mail, Linkedin, ArrowRight } from "lucide-react";
+import { Radar, ShieldCheck, Search, Mail, Linkedin, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AppHeader } from "@/components/AppHeader";
+import { Win95Window, GroupBox } from "@/components/win95/Window";
 import { useAuth } from "@/hooks/useAuth";
 
 export const Route = createFileRoute("/")({
@@ -29,95 +30,117 @@ export const Route = createFileRoute("/")({
 const STEPS = [
   {
     icon: Search,
-    title: "Paste the job",
+    title: "1. Paste the job",
     body: "Drop in a job link or the full description. We pull out the company, role and real company domain.",
   },
   {
     icon: Linkedin,
-    title: "Find the humans",
-    body: "We search the public web for recruiters, talent partners and hiring managers at that company and link their LinkedIn profiles.",
+    title: "2. Find the humans",
+    body: "We search the public web for recruiters, talent partners and hiring managers at that company.",
   },
   {
     icon: Mail,
-    title: "Only real emails",
-    body: "An email is shown only when it is published on a public page — and we always show you the exact source link.",
+    title: "3. Only real emails",
+    body: "An email appears only when it is published on a public page — with the exact source link.",
   },
 ];
+
+/** A desktop shortcut: icon over a label, like an item on the Win95 desktop. */
+function DesktopIcon({ icon: Icon, label, to }: { icon: typeof Radar; label: string; to: string }) {
+  return (
+    <Link to={to} className="group flex w-[76px] flex-col items-center gap-1 p-1 text-center">
+      <span className="grid size-8 place-items-center">
+        <Icon className="size-7 text-white drop-shadow-[1px_1px_0_rgba(0,0,0,0.6)]" />
+      </span>
+      <span className="px-1 text-[11px] text-white group-hover:bg-w95-title group-focus-visible:bg-w95-title">
+        {label}
+      </span>
+    </Link>
+  );
+}
 
 function Landing() {
   const { user } = useAuth();
 
   return (
-    <div className="min-h-screen">
+    <div className="desktop-bg min-h-screen pb-[42px]">
+      <div className="flex flex-col gap-4 px-4 py-4 sm:flex-row">
+        <nav aria-label="Shortcuts" className="flex shrink-0 gap-2 sm:flex-col">
+          <DesktopIcon icon={Radar} label="ReachPoint" to={user ? "/dashboard" : "/auth"} />
+          <DesktopIcon icon={FileText} label="My Targets" to={user ? "/dashboard" : "/auth"} />
+        </nav>
+
+        <div className="mx-auto w-full max-w-3xl space-y-4">
+          <Win95Window
+            title="ReachPoint — Find the recruiter behind any job"
+            icon={<Radar className="size-3.5 text-black" />}
+            menu={["File", "Edit", "View", "Help"]}
+            status={["Ready", "No invented emails"]}
+            bodyClassName="bg-w95-face p-4"
+          >
+            <div className="bevel-in-thin mb-4 flex items-start gap-2 bg-w95-info px-3 py-2">
+              <ShieldCheck className="mt-[1px] size-4 shrink-0 text-black" />
+              <p className="text-[11px] text-black">
+                No invented emails. Every address we show comes with the public page it was found
+                on.
+              </p>
+            </div>
+
+            <h1 className="text-[20px] leading-tight font-bold text-black">
+              Find the person actually reading your application.
+            </h1>
+            <p className="mt-2 max-w-[52ch] text-[11px] text-black">
+              ReachPoint turns any job posting into a shortlist of real recruiters and hiring
+              managers — with their LinkedIn profiles, verifiable public emails, and a short message
+              you can actually send.
+            </p>
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button asChild size="lg" className="min-w-[130px]">
+                <Link to={user ? "/dashboard" : "/auth"}>
+                  {user ? "Open dashboard" : "Start free"}
+                </Link>
+              </Button>
+              <Button asChild size="lg" variant="secondary" className="min-w-[110px]">
+                <a href="#how">How it works</a>
+              </Button>
+            </div>
+          </Win95Window>
+
+          <Win95Window
+            title="How it works"
+            icon={<Search className="size-3.5 text-black" />}
+            status={["3 steps", "Zero guesswork"]}
+            bodyClassName="bg-w95-face p-4"
+          >
+            <div id="how" className="grid gap-3 sm:grid-cols-3">
+              {STEPS.map((s) => (
+                <GroupBox key={s.title} label={s.title} className="bg-w95-face">
+                  <s.icon className="mb-2 size-6 text-black" />
+                  <p className="text-[11px] text-black">{s.body}</p>
+                </GroupBox>
+              ))}
+            </div>
+
+            <div className="bevel-in-thin mt-4 flex flex-wrap items-center justify-between gap-3 bg-w95-face px-3 py-3">
+              <div>
+                <h2 className="text-[12px] font-bold text-black">Stop applying into the void</h2>
+                <p className="mt-1 max-w-[46ch] text-[11px] text-black">
+                  Track every application, keep contacts and outreach in one place, and follow up
+                  like someone who did their homework.
+                </p>
+              </div>
+              <Button asChild className="min-w-[120px]">
+                <Link to={user ? "/dashboard" : "/auth"}>
+                  {user ? "Go to dashboard" : "Create account"}
+                </Link>
+              </Button>
+            </div>
+          </Win95Window>
+        </div>
+      </div>
+
       <AppHeader email={user?.email ?? null} />
-
-      <main>
-        <section className="hero-bg">
-          <div className="mx-auto w-full max-w-6xl px-5 py-24 sm:py-32">
-            <div className="max-w-3xl">
-              <span className="inline-flex items-center gap-2 rounded-full border border-border bg-secondary/60 px-3 py-1 text-xs text-muted-foreground">
-                <ShieldCheck className="size-3.5 text-success" />
-                No invented emails. Sources on every contact.
-              </span>
-              <h1 className="mt-6 text-5xl leading-[1.05] font-semibold sm:text-6xl">
-                Find the person actually reading your application.
-              </h1>
-              <p className="mt-5 max-w-2xl text-lg text-muted-foreground">
-                ReachPoint turns any job posting into a shortlist of real recruiters and hiring
-                managers — with their LinkedIn profiles, verifiable public emails, and a short
-                message you can actually send.
-              </p>
-              <div className="mt-8 flex flex-wrap gap-3">
-                <Button asChild size="lg" className="glow-ring">
-                  <Link to={user ? "/dashboard" : "/auth"}>
-                    {user ? "Open dashboard" : "Start free"} <ArrowRight className="size-4" />
-                  </Link>
-                </Button>
-                <Button asChild size="lg" variant="secondary">
-                  <a href="#how">How it works</a>
-                </Button>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section id="how" className="mx-auto w-full max-w-6xl px-5 py-20">
-          <h2 className="text-3xl font-semibold">Three steps, zero guesswork</h2>
-          <div className="mt-8 grid gap-5 md:grid-cols-3">
-            {STEPS.map((s) => (
-              <div key={s.title} className="surface-panel rounded-2xl p-6">
-                <span className="grid size-10 place-items-center rounded-xl bg-secondary text-primary">
-                  <s.icon className="size-5" />
-                </span>
-                <h3 className="mt-4 text-lg font-semibold">{s.title}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{s.body}</p>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="mx-auto w-full max-w-6xl px-5 pb-24">
-          <div className="surface-panel flex flex-col items-start gap-6 rounded-2xl p-8 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="text-2xl font-semibold">Stop applying into the void</h2>
-              <p className="mt-2 max-w-xl text-sm text-muted-foreground">
-                Track every application, keep contacts and outreach in one place, and follow up like
-                someone who did their homework.
-              </p>
-            </div>
-            <Button asChild size="lg">
-              <Link to={user ? "/dashboard" : "/auth"}>
-                <Radar className="size-4" /> {user ? "Go to dashboard" : "Create your account"}
-              </Link>
-            </Button>
-          </div>
-        </section>
-      </main>
-
-      <footer className="border-t border-border/70 py-8 text-center text-xs text-muted-foreground">
-        ReachPoint only surfaces information already published publicly, with a source link for
-        every email.
-      </footer>
     </div>
   );
 }

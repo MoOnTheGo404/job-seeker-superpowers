@@ -7,24 +7,17 @@ import {
   Copy,
   ExternalLink,
   Linkedin,
-  Loader2,
   Mail,
   Radar,
   ShieldCheck,
-  Sparkles,
+  Users,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AppHeader } from "@/components/AppHeader";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Win95Window, GroupBox } from "@/components/win95/Window";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { discoverContacts, draftOutreach } from "@/lib/recruiters.functions";
@@ -51,6 +44,40 @@ export const Route = createFileRoute("/target/$id")({
 });
 
 const STATUSES = ["researching", "contacted", "applied", "interviewing", "closed"];
+
+/** Win95 combo box: sunken field plus a beveled drop-down arrow on the right. */
+function W95Select({
+  value,
+  onChange,
+  children,
+  className,
+  id,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  children: React.ReactNode;
+  className?: string;
+  id?: string;
+}) {
+  return (
+    <div className={`bevel-in relative inline-flex items-center ${className ?? ""}`}>
+      <select
+        id={id}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full appearance-none bg-transparent py-[2px] pr-6 pl-[4px] text-[11px] text-black focus:outline-none"
+      >
+        {children}
+      </select>
+      <span
+        aria-hidden="true"
+        className="bevel-out pointer-events-none absolute top-[2px] right-[2px] bottom-[2px] grid w-[16px] place-items-center text-[8px] leading-none text-black"
+      >
+        ▼
+      </span>
+    </div>
+  );
+}
 
 function TargetPage() {
   const { id } = Route.useParams();
@@ -108,82 +135,117 @@ function TargetPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["target", id] }),
   });
 
+  const count = contacts.data?.length ?? 0;
+
   return (
-    <div className="min-h-screen">
-      <AppHeader email={user?.email ?? null} />
-      <main className="mx-auto w-full max-w-5xl px-5 py-10">
+    <div className="desktop-bg min-h-screen pb-[42px]" aria-busy={discover.isPending}>
+      <div className="mx-auto w-full max-w-4xl space-y-4 px-4 py-4">
         <Link
           to="/dashboard"
-          className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+          className="inline-flex items-center gap-1 text-[11px] text-white hover:underline"
         >
-          <ArrowLeft className="size-4" /> All job targets
+          <ArrowLeft className="size-3.5" /> All job targets
         </Link>
 
         {target.data && (
-          <div className="surface-panel mt-5 rounded-2xl p-6">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <h1 className="text-2xl font-semibold">{target.data.role_title}</h1>
-                <p className="mt-1 text-muted-foreground">
-                  {target.data.company}
-                  {target.data.location ? ` · ${target.data.location}` : ""}
-                  {target.data.company_domain ? ` · ${target.data.company_domain}` : ""}
-                </p>
-                {target.data.job_url && (
-                  <a
-                    href={target.data.job_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="mt-2 inline-flex items-center gap-1 text-sm text-accent hover:underline"
-                  >
-                    Original posting <ExternalLink className="size-3.5" />
-                  </a>
-                )}
+          <Win95Window
+            title={`${target.data.role_title} — ${target.data.company}`}
+            icon={<Radar className="size-3.5 text-black" />}
+            menu={["File", "Edit", "View", "Help"]}
+            status={[
+              target.data.company_domain ?? "No company domain",
+              `Status: ${target.data.status}`,
+            ]}
+            bodyClassName="bg-w95-face p-4"
+          >
+            <GroupBox label="Application" className="bg-w95-face">
+              <dl className="grid grid-cols-[110px_1fr] gap-x-2 gap-y-1 text-[11px] text-black">
+                <dt className="font-bold">Role:</dt>
+                <dd>{target.data.role_title}</dd>
+                <dt className="font-bold">Company:</dt>
+                <dd>{target.data.company}</dd>
+                <dt className="font-bold">Location:</dt>
+                <dd>{target.data.location ?? "—"}</dd>
+                <dt className="font-bold">Domain:</dt>
+                <dd>{target.data.company_domain ?? "—"}</dd>
+                {target.data.job_url ? (
+                  <>
+                    <dt className="font-bold">Posting:</dt>
+                    <dd>
+                      <a
+                        href={target.data.job_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-[#0000ee] underline hover:text-[#551a8b]"
+                      >
+                        Original posting <ExternalLink className="size-3" />
+                      </a>
+                    </dd>
+                  </>
+                ) : null}
+              </dl>
+            </GroupBox>
+
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <label htmlFor="status" className="text-[11px] text-black">
+                  Status:
+                </label>
+                <W95Select
+                  id="status"
+                  value={target.data.status}
+                  onChange={(v) => setStatus.mutate(v)}
+                  className="w-[140px]"
+                >
+                  {STATUSES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </W95Select>
               </div>
-              <div className="flex items-center gap-3">
-                <Select value={target.data.status} onValueChange={(v) => setStatus.mutate(v)}>
-                  <SelectTrigger className="w-40">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {STATUSES.map((s) => (
-                      <SelectItem key={s} value={s}>
-                        {s}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button onClick={() => discover.mutate()} disabled={discover.isPending}>
-                  {discover.isPending ? (
-                    <Loader2 className="size-4 animate-spin" />
-                  ) : (
-                    <Radar className="size-4" />
-                  )}
-                  {discover.isPending ? "Searching the web…" : "Find recruiters"}
-                </Button>
-              </div>
+              <Button
+                onClick={() => discover.mutate()}
+                disabled={discover.isPending}
+                className="min-w-[140px]"
+              >
+                {discover.isPending ? "Searching…" : "Find recruiters"}
+              </Button>
             </div>
-          </div>
+          </Win95Window>
         )}
 
-        <section className="mt-8 space-y-4">
-          <h2 className="text-lg font-semibold">Contacts</h2>
-          {discover.isPending && (
-            <p className="text-sm text-muted-foreground">
+        <Win95Window
+          title="Contacts"
+          icon={<Users className="size-3.5 text-black" />}
+          status={[
+            discover.isPending
+              ? "Searching public sources… this can take up to a minute."
+              : `${count} contact${count === 1 ? "" : "s"}`,
+            "Sources shown for every email",
+          ]}
+          bodyClassName="bg-w95-face p-4"
+        >
+          {discover.isPending ? (
+            <div className="bevel-in-thin bg-w95-info px-3 py-2 text-[11px] text-black">
               Searching public sources for recruiters, hiring managers and published emails. This
               can take up to a minute.
-            </p>
+            </div>
+          ) : count === 0 ? (
+            <div className="bevel-in-thin bg-w95-info px-3 py-2 text-[11px] text-black">
+              No contacts yet — choose “Find recruiters” to search public sources.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {contacts.data?.map((c) => (
+                <ContactCard key={c.id} contact={c} />
+              ))}
+            </div>
           )}
-          {!discover.isPending && contacts.data?.length === 0 && (
-            <p className="text-sm text-muted-foreground">
-              No contacts yet — hit “Find recruiters” to search public sources.
-            </p>
-          )}
-          {contacts.data?.map((c) => (
-            <ContactCard key={c.id} contact={c} />
-          ))}
-        </section>
-      </main>
+        </Win95Window>
+      </div>
+
+      <AppHeader email={user?.email ?? null} />
     </div>
   );
 }
@@ -218,51 +280,51 @@ function ContactCard({ contact }: { contact: ContactRow }) {
   });
 
   return (
-    <article className="surface-panel rounded-2xl p-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h3 className="text-lg font-medium">{contact.name ?? "Recruiting team"}</h3>
-          {contact.title && <p className="text-sm text-muted-foreground">{contact.title}</p>}
-        </div>
+    <GroupBox label={contact.name ?? "Recruiting team"} className="bg-w95-face">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        {contact.title ? <p className="text-[11px] text-black">{contact.title}</p> : <span />}
         {contact.email_status === "verified_public" && (
-          <Badge className="bg-success text-success-foreground">
-            <ShieldCheck className="size-3.5" /> Public email found
+          <Badge className="gap-1">
+            <ShieldCheck className="size-3" /> Public email found
           </Badge>
         )}
         {contact.email_status === "team_inbox" && <Badge variant="secondary">Company inbox</Badge>}
         {contact.email_status === "not_found" && <Badge variant="outline">LinkedIn only</Badge>}
       </div>
 
-      <div className="mt-4 grid gap-2 text-sm">
+      <div className="mt-2 grid gap-1 text-[11px]">
         {contact.email ? (
           <div className="flex flex-wrap items-center gap-2">
-            <Mail className="size-4 text-primary" />
-            <a href={`mailto:${contact.email}`} className="font-medium hover:underline">
+            <Mail className="size-3.5 text-black" />
+            <a
+              href={`mailto:${contact.email}`}
+              className="text-[#0000ee] underline hover:text-[#551a8b]"
+            >
               {contact.email}
             </a>
             <Button
-              variant="ghost"
+              variant="secondary"
               size="sm"
               onClick={() => {
                 navigator.clipboard.writeText(contact.email!);
                 toast.success("Email copied");
               }}
             >
-              <Copy className="size-3.5" />
+              <Copy className="size-3" /> Copy
             </Button>
             {contact.email_source_url && (
               <a
                 href={contact.email_source_url}
                 target="_blank"
                 rel="noreferrer"
-                className="text-xs text-accent hover:underline"
+                className="text-[#0000ee] underline hover:text-[#551a8b]"
               >
                 source
               </a>
             )}
           </div>
         ) : (
-          <p className="text-muted-foreground">
+          <p className="text-black">
             No publicly published email — we never guess addresses. Use LinkedIn below.
           </p>
         )}
@@ -273,9 +335,9 @@ function ContactCard({ contact }: { contact: ContactRow }) {
               href={contact.linkedin_url}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center gap-1.5 text-accent hover:underline"
+              className="inline-flex items-center gap-1 text-[#0000ee] underline hover:text-[#551a8b]"
             >
-              <Linkedin className="size-4" /> LinkedIn profile
+              <Linkedin className="size-3.5" /> LinkedIn profile
             </a>
           )}
           {contact.linkedin_search_url && (
@@ -283,47 +345,49 @@ function ContactCard({ contact }: { contact: ContactRow }) {
               href={contact.linkedin_search_url}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center gap-1.5 text-muted-foreground hover:text-foreground"
+              className="inline-flex items-center gap-1 text-[#0000ee] underline hover:text-[#551a8b]"
             >
-              <ExternalLink className="size-3.5" /> Search on LinkedIn
+              <ExternalLink className="size-3" /> Search on LinkedIn
             </a>
           )}
         </div>
 
-        {contact.notes && <p className="text-xs text-muted-foreground">{contact.notes}</p>}
+        {contact.notes && <p className="text-w95-shadow">{contact.notes}</p>}
       </div>
 
-      <div className="mt-5 border-t border-border pt-4">
-        <div className="flex flex-wrap items-center gap-3">
-          <Select value={channel} onValueChange={(v) => setChannel(v as "email" | "linkedin")}>
-            <SelectTrigger className="w-36">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="email" disabled={!contact.email}>
-                Email
-              </SelectItem>
-              <SelectItem value="linkedin">LinkedIn note</SelectItem>
-            </SelectContent>
-          </Select>
+      <div className="mt-3 border-t border-t-w95-shadow pt-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <label htmlFor={`ch-${contact.id}`} className="text-[11px] text-black">
+            Send via:
+          </label>
+          <W95Select
+            id={`ch-${contact.id}`}
+            value={channel}
+            onChange={(v) => setChannel(v as "email" | "linkedin")}
+            className="w-[130px]"
+          >
+            <option value="email" disabled={!contact.email}>
+              Email
+            </option>
+            <option value="linkedin">LinkedIn note</option>
+          </W95Select>
           <Button
             variant="secondary"
             size="sm"
             onClick={() => generate.mutate()}
             disabled={generate.isPending}
           >
-            {generate.isPending ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <Sparkles className="size-4" />
-            )}
-            Draft message
+            {generate.isPending ? "Writing…" : "Draft message"}
           </Button>
         </div>
 
         {message && (
-          <div className="mt-4 space-y-2">
-            {subject && <p className="text-sm font-medium">Subject: {subject}</p>}
+          <div className="mt-3 space-y-2">
+            {subject && (
+              <p className="text-[11px] text-black">
+                <span className="font-bold">Subject:</span> {subject}
+              </p>
+            )}
             <Textarea rows={7} value={message} onChange={(e) => setMessage(e.target.value)} />
             <div className="flex gap-2">
               <Button
@@ -334,14 +398,14 @@ function ContactCard({ contact }: { contact: ContactRow }) {
                   toast.success("Message copied");
                 }}
               >
-                <Copy className="size-3.5" /> Copy
+                <Copy className="size-3" /> Copy
               </Button>
               {channel === "email" && contact.email && (
                 <Button asChild size="sm">
                   <a
                     href={`mailto:${contact.email}?subject=${encodeURIComponent(subject ?? "")}&body=${encodeURIComponent(message)}`}
                   >
-                    <Mail className="size-3.5" /> Open in mail app
+                    <Mail className="size-3" /> Open in mail app
                   </a>
                 </Button>
               )}
@@ -349,6 +413,6 @@ function ContactCard({ contact }: { contact: ContactRow }) {
           </div>
         )}
       </div>
-    </article>
+    </GroupBox>
   );
 }

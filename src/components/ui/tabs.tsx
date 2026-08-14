@@ -12,7 +12,8 @@ const TabsList = React.forwardRef<
   <TabsPrimitive.List
     ref={ref}
     className={cn(
-      "inline-flex h-9 items-center justify-center rounded-lg bg-muted p-1 text-muted-foreground",
+      // Tab strip sits on the panel's top edge; the active tab overlaps it.
+      "relative z-10 -mb-[2px] inline-flex items-end justify-start gap-[2px] text-black",
       className,
     )}
     {...props}
@@ -27,7 +28,9 @@ const TabsTrigger = React.forwardRef<
   <TabsPrimitive.Trigger
     ref={ref}
     className={cn(
-      "inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium ring-offset-background cursor-pointer transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 disabled:cursor-not-allowed data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow",
+      // Win95 tabs: raised, square-ish, and the selected one grows a pixel and
+      // hides the panel border beneath it so the two read as one surface.
+      "inline-flex items-center justify-center whitespace-nowrap border-2 border-b-0 border-t-w95-light border-l-w95-light border-r-w95-darkest bg-w95-face px-3 pt-[2px] pb-[3px] text-[11px] text-black select-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-dotted focus-visible:outline-black focus-visible:outline-offset-[-4px] disabled:text-w95-shadow data-[state=active]:-mt-[2px] data-[state=active]:pt-[4px] data-[state=active]:pb-[5px] data-[state=active]:font-bold",
       className,
     )}
     {...props}
@@ -41,10 +44,7 @@ const TabsContent = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <TabsPrimitive.Content
     ref={ref}
-    className={cn(
-      "mt-2 ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-      className,
-    )}
+    className={cn("bevel-out p-3 focus-visible:outline-none", className)}
     {...props}
   />
 ));

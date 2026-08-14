@@ -8,7 +8,9 @@ const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<"input">>(
       <input
         type={type}
         className={cn(
-          "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 md:text-sm",
+          // Sunken field: bevel-in, white well, square corners, no focus ring —
+          // Win95 showed focus with the caret alone.
+          "bevel-in flex min-h-[21px] w-full px-[3px] py-[2px] text-[11px] text-black file:border-0 file:bg-transparent file:text-[11px] file:text-black placeholder:text-w95-shadow focus-visible:outline-none disabled:bg-w95-face disabled:text-w95-shadow",
           className,
         )}
         ref={ref}
