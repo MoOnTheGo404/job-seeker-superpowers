@@ -71,6 +71,8 @@ function Dashboard() {
           company_domain: analyzed.company_domain,
           role_title: analyzed.role_title || "Unknown role",
           location: analyzed.location,
+          department: analyzed.department,
+          seniority: analyzed.seniority,
           job_url: jobUrl || null,
           job_description: jobText || analyzed.summary,
         })

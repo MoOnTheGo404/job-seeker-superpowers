@@ -13,6 +13,7 @@ import {
   matchesPerson,
   normalizeDomain,
   parseLinkedInTitle,
+  scoreReferralCandidate,
   stripHtml,
   RECRUIT_TITLES,
   type FoundEmail,
@@ -310,6 +311,55 @@ export async function searchPersonEmail(
     if (match) return match;
   }
   return null;
+}
+
+/**
+ * Find senior people in the job's own department who could refer the applicant.
+ *
+ * Distinct from findLinkedInProfiles in who it wants: that one looks for people
+ * whose job is to receive applications, this one looks for people on the team
+ * who could vouch. Recruiters are filtered out by scoreReferralCandidate, so
+ * the two lists never overlap.
+ *
+ * Results are ranked rather than taken in search order — a Director on the
+ * actual team beats a more senior stranger from another org.
+ */
+export async function findReferralProfiles(
+  company: string,
+  department: string | null,
+  roleTitle: string,
+): Promise<FoundProfile[]> {
+  const focus = department ?? roleTitle;
+  // Operator-free for the same free-tier reason as findLinkedInProfiles.
+  const queries = [
+    `${company} senior ${focus} linkedin.com/in`,
+    `${company} ${focus} lead manager linkedin.com/in`,
+    `${company} head of ${focus} director linkedin.com/in`,
+  ];
+
+  const seen = new Map<string, FoundProfile & { score: number }>();
+  for (const [index, query] of queries.entries()) {
+    const results = await webSearch(query);
+    for (const r of results) {
+      if (!/linkedin\.com\/in\//i.test(r.url)) continue;
+      const url = r.url.split("?")[0]!;
+      if (seen.has(url)) continue;
+      const { name, title } = parseLinkedInTitle(r.title);
+      if (!name) continue;
+      const score = scoreReferralCandidate(title, department);
+      // 0 means junior, a recruiter, or the wrong function — not a referrer.
+      if (score === 0) continue;
+      seen.set(url, { name, title, linkedinUrl: url, sourceUrl: r.url, score });
+    }
+    if (!hasSearchApi() && index < queries.length - 1) {
+      await new Promise((r) => setTimeout(r, 600));
+    }
+  }
+
+  return [...seen.values()]
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 8)
+    .map(({ score: _score, ...profile }) => profile);
 }
 
 export function linkedInPeopleSearchUrl(company: string, keywords: string): string {

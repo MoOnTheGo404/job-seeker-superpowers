@@ -10,6 +10,7 @@ export type Database = {
     Tables: {
       contacts: {
         Row: {
+          contact_type: string;
           created_at: string;
           email: string | null;
           email_source_url: string | null;
@@ -24,6 +25,7 @@ export type Database = {
           user_id: string;
         };
         Insert: {
+          contact_type?: string;
           created_at?: string;
           email?: string | null;
           email_source_url?: string | null;
@@ -38,6 +40,7 @@ export type Database = {
           user_id: string;
         };
         Update: {
+          contact_type?: string;
           created_at?: string;
           email?: string | null;
           email_source_url?: string | null;
@@ -63,6 +66,8 @@ export type Database = {
       };
       job_targets: {
         Row: {
+          department: string | null;
+          seniority: string | null;
           company: string;
           company_domain: string | null;
           created_at: string;
@@ -76,6 +81,8 @@ export type Database = {
           user_id: string;
         };
         Insert: {
+          department?: string | null;
+          seniority?: string | null;
           company: string;
           company_domain?: string | null;
           created_at?: string;
@@ -89,6 +96,8 @@ export type Database = {
           user_id: string;
         };
         Update: {
+          department?: string | null;
+          seniority?: string | null;
           company?: string;
           company_domain?: string | null;
           created_at?: string;
@@ -105,6 +114,7 @@ export type Database = {
       };
       outreach: {
         Row: {
+          purpose: string;
           channel: string;
           contact_id: string;
           created_at: string;
@@ -115,6 +125,7 @@ export type Database = {
           user_id: string;
         };
         Insert: {
+          purpose?: string;
           channel?: string;
           contact_id: string;
           created_at?: string;
@@ -125,6 +136,7 @@ export type Database = {
           user_id: string;
         };
         Update: {
+          purpose?: string;
           channel?: string;
           contact_id?: string;
           created_at?: string;

@@ -98,6 +98,113 @@ const RECRUITING_LOCAL_PARTS = [
   "join",
 ];
 
+/**
+ * Titles senior enough that a referral from them carries weight. Ordered
+ * loosely by rank; `scoreReferralCandidate` uses position, so keep the most
+ * senior terms last.
+ */
+export const SENIORITY_TERMS = [
+  "senior",
+  "sr.",
+  "lead",
+  "staff",
+  "manager",
+  "principal",
+  "architect",
+  "head of",
+  "director",
+  "distinguished",
+  "vp",
+  "vice president",
+  "chief",
+];
+
+/** Function keywords, so an engineering job doesn't surface the sales org. */
+const DEPARTMENT_HINTS: Record<string, string[]> = {
+  engineering: [
+    "engineer",
+    "engineering",
+    "developer",
+    "software",
+    "backend",
+    "frontend",
+    "full stack",
+    "infrastructure",
+    "platform",
+    "sre",
+    "devops",
+    "architect",
+  ],
+  data: ["data", "analytics", "scientist", "machine learning", "ml", "ai research"],
+  product: ["product manager", "product management", "product owner", "pm"],
+  design: ["design", "designer", "ux", "ui", "research"],
+  marketing: ["marketing", "growth", "brand", "content", "demand gen"],
+  sales: ["sales", "account executive", "business development", "revenue", "gtm"],
+  finance: ["finance", "accounting", "controller", "fp&a"],
+  operations: ["operations", "ops", "program manager", "project manager"],
+  legal: ["legal", "counsel", "compliance"],
+  support: ["support", "customer success", "solutions"],
+};
+
+function normalize(text: string): string {
+  return text.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Is this headline senior enough to be worth asking for a referral?
+ *
+ * Deliberately excludes recruiters: they're already covered by recruiter
+ * discovery, and a referral ask is a different request to a different person.
+ */
+export function isSeniorTitle(title: string): boolean {
+  const t = normalize(title);
+  if (!t) return false;
+  if (isRecruiterTitle(t)) return false;
+  return SENIORITY_TERMS.some((term) => t.includes(term));
+}
+
+export function isRecruiterTitle(title: string): boolean {
+  const t = normalize(title);
+  return RECRUIT_TITLES.some((term) => t.includes(term)) || /\brecruit/.test(t);
+}
+
+/**
+ * Does this headline sit in the same function as the job?
+ *
+ * Unknown or unmatched departments return true rather than false — a weak
+ * signal should widen the pool, not empty it.
+ */
+export function matchesDepartment(title: string, department: string | null): boolean {
+  if (!department) return true;
+  const t = normalize(title);
+  const d = normalize(department);
+  const bucket = Object.entries(DEPARTMENT_HINTS).find(
+    ([name, hints]) => d.includes(name) || hints.some((h) => d.includes(h)),
+  );
+  if (!bucket) return true;
+  return bucket[1].some((h) => t.includes(h));
+}
+
+/**
+ * Rank a referral candidate. Higher is better; 0 means "don't show".
+ *
+ * Seniority contributes by rank so a Director outranks a Senior, and a
+ * department match roughly doubles the score — a senior person on the actual
+ * team is worth more than a more senior stranger elsewhere in the company.
+ */
+export function scoreReferralCandidate(title: string, department: string | null): number {
+  const t = normalize(title);
+  if (!t || isRecruiterTitle(t)) return 0;
+
+  const rank = SENIORITY_TERMS.reduce(
+    (best, term, i) => (t.includes(term) ? Math.max(best, i + 1) : best),
+    0,
+  );
+  if (rank === 0) return 0;
+
+  return matchesDepartment(title, department) ? rank * 2 : rank;
+}
+
 export function stripHtml(html: string): string {
   return html
     .replace(/<script[\s\S]*?<\/script>/gi, " ")

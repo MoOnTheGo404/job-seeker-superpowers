@@ -4,10 +4,14 @@ import {
   extractEmails,
   hostFromUrl,
   isJobBoard,
+  isRecruiterTitle,
+  isSeniorTitle,
+  matchesDepartment,
   matchesPerson,
   normalizeDomain,
   parseJsonBlock,
   parseLinkedInTitle,
+  scoreReferralCandidate,
   stripHtml,
 } from "./discovery.parse";
 
@@ -165,6 +169,76 @@ describe("parseLinkedInTitle", () => {
   it("does not split on a hyphenated name", () => {
     // No surrounding spaces, so it is not a separator.
     expect(parseLinkedInTitle("Anne-Marie Cole - Recruiter").name).toBe("Anne-Marie Cole");
+  });
+});
+
+describe("isRecruiterTitle", () => {
+  it("catches recruiting headlines in their common phrasings", () => {
+    expect(isRecruiterTitle("Technical Recruiter @ Stripe")).toBe(true);
+    expect(isRecruiterTitle("Talent Acquisition Partner")).toBe(true);
+    expect(isRecruiterTitle("Recruiting Lead")).toBe(true);
+  });
+
+  it("does not flag ordinary staff", () => {
+    expect(isRecruiterTitle("Staff Software Engineer")).toBe(false);
+  });
+});
+
+describe("isSeniorTitle", () => {
+  it("accepts genuinely senior individual contributors and managers", () => {
+    expect(isSeniorTitle("Senior Backend Engineer")).toBe(true);
+    expect(isSeniorTitle("Staff Software Engineer")).toBe(true);
+    expect(isSeniorTitle("Director of Engineering")).toBe(true);
+    expect(isSeniorTitle("VP Engineering")).toBe(true);
+  });
+
+  it("rejects junior and unmarked titles", () => {
+    expect(isSeniorTitle("Software Engineer")).toBe(false);
+    expect(isSeniorTitle("Junior Developer")).toBe(false);
+    expect(isSeniorTitle("")).toBe(false);
+  });
+
+  it("rejects recruiters even when their title is senior", () => {
+    // Recruiters are found separately; a referral ask is a different request.
+    expect(isSeniorTitle("Senior Technical Recruiter")).toBe(false);
+    expect(isSeniorTitle("Head of Talent Acquisition")).toBe(false);
+  });
+});
+
+describe("matchesDepartment", () => {
+  it("keeps people in the job's own function", () => {
+    expect(matchesDepartment("Senior Backend Engineer", "Engineering")).toBe(true);
+    expect(matchesDepartment("Staff Data Scientist", "Data")).toBe(true);
+  });
+
+  it("filters out other functions", () => {
+    expect(matchesDepartment("Senior Account Executive", "Engineering")).toBe(false);
+    expect(matchesDepartment("Director of Marketing", "Engineering")).toBe(false);
+  });
+
+  it("widens rather than empties the pool when the department is unknown", () => {
+    expect(matchesDepartment("Senior Backend Engineer", null)).toBe(true);
+    expect(matchesDepartment("Senior Anything", "Some Unrecognised Team")).toBe(true);
+  });
+});
+
+describe("scoreReferralCandidate", () => {
+  it("scores a senior person on the actual team above a stranger elsewhere", () => {
+    const onTeam = scoreReferralCandidate("Senior Backend Engineer", "Engineering");
+    const elsewhere = scoreReferralCandidate("Senior Account Executive", "Engineering");
+    expect(onTeam).toBeGreaterThan(elsewhere);
+  });
+
+  it("ranks more senior titles higher within the same team", () => {
+    const director = scoreReferralCandidate("Director of Engineering", "Engineering");
+    const senior = scoreReferralCandidate("Senior Software Engineer", "Engineering");
+    expect(director).toBeGreaterThan(senior);
+  });
+
+  it("returns 0 for people who should never appear as referrers", () => {
+    expect(scoreReferralCandidate("Software Engineer", "Engineering")).toBe(0);
+    expect(scoreReferralCandidate("Senior Technical Recruiter", "Engineering")).toBe(0);
+    expect(scoreReferralCandidate("", "Engineering")).toBe(0);
   });
 });
 

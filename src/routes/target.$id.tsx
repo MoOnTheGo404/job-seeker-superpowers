@@ -20,7 +20,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Win95Window, GroupBox } from "@/components/win95/Window";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { discoverContacts, draftOutreach } from "@/lib/recruiters.functions";
+import { discoverContacts, discoverReferrers, draftOutreach } from "@/lib/recruiters.functions";
 
 export const Route = createFileRoute("/target/$id")({
   head: () => ({
@@ -114,6 +114,7 @@ function TargetPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const runDiscovery = useServerFn(discoverContacts);
+  const runReferrerDiscovery = useServerFn(discoverReferrers);
   const [background, setBackground] = useApplicantBackground();
 
   useEffect(() => {
@@ -157,6 +158,15 @@ function TargetPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const findReferrers = useMutation({
+    mutationFn: async () => runReferrerDiscovery({ data: { targetId: id } }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["contacts", id] });
+      toast.success("Referral search finished.");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const setStatus = useMutation({
     mutationFn: async (status: string) => {
       const { error } = await supabase.from("job_targets").update({ status }).eq("id", id);
@@ -165,10 +175,15 @@ function TargetPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["target", id] }),
   });
 
-  const count = contacts.data?.length ?? 0;
+  // Both kinds live in one table; split them here so each gets its own list,
+  // its own empty state and its own message purpose.
+  const all = contacts.data ?? [];
+  const recruiters = all.filter((c) => c.contact_type !== "referrer");
+  const referrers = all.filter((c) => c.contact_type === "referrer");
+  const busy = discover.isPending || findReferrers.isPending;
 
   return (
-    <div className="desktop-bg min-h-screen pb-[42px]" aria-busy={discover.isPending}>
+    <div className="desktop-bg min-h-screen pb-[42px]" aria-busy={busy}>
       <div className="mx-auto w-full max-w-4xl space-y-4 px-4 py-4">
         <Link
           to="/dashboard"
@@ -234,13 +249,22 @@ function TargetPage() {
                   ))}
                 </W95Select>
               </div>
-              <Button
-                onClick={() => discover.mutate()}
-                disabled={discover.isPending}
-                className="min-w-[140px]"
-              >
-                {discover.isPending ? "Searching…" : "Find recruiters"}
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  onClick={() => discover.mutate()}
+                  disabled={discover.isPending}
+                  className="min-w-[130px]"
+                >
+                  {discover.isPending ? "Searching…" : "Find recruiters"}
+                </Button>
+                <Button
+                  onClick={() => findReferrers.mutate()}
+                  disabled={findReferrers.isPending}
+                  className="min-w-[150px]"
+                >
+                  {findReferrers.isPending ? "Searching…" : "Find referrers"}
+                </Button>
+              </div>
             </div>
           </Win95Window>
         )}
@@ -249,44 +273,53 @@ function TargetPage() {
           title="Contacts"
           icon={<Users className="size-3.5 text-black" />}
           status={[
-            discover.isPending
+            busy
               ? "Searching public sources… this can take up to a minute."
-              : `${count} contact${count === 1 ? "" : "s"}`,
+              : `${recruiters.length} recruiter${recruiters.length === 1 ? "" : "s"}, ${referrers.length} referrer${referrers.length === 1 ? "" : "s"}`,
             "Sources shown for every email",
           ]}
           bodyClassName="bg-w95-face p-4"
         >
-          {discover.isPending ? (
-            <div className="bevel-in-thin bg-w95-info px-3 py-2 text-[11px] text-black">
-              Searching public sources for recruiters, hiring managers and published emails. This
-              can take up to a minute.
-            </div>
-          ) : count === 0 ? (
-            <div className="bevel-in-thin bg-w95-info px-3 py-2 text-[11px] text-black">
-              No contacts yet — choose “Find recruiters” to search public sources.
-            </div>
-          ) : (
-            <div className="space-y-3">
-              <GroupBox label="About you" className="bg-w95-face">
-                <p className="mb-2 text-[11px] text-black">
-                  The drafts can only state what you put here. Leave it empty and every personal
-                  detail comes back as a <span className="font-mono">[bracketed blank]</span> for
-                  you to fill in — the model is instructed never to invent your background.
-                </p>
-                <Textarea
-                  id="applicant-background"
-                  rows={4}
-                  value={background}
-                  onChange={(e) => setBackground(e.target.value)}
-                  placeholder="e.g. 4 years backend Go at a fintech; led the payments migration; graduating MSc CS June 2026…"
-                />
-              </GroupBox>
+          <div className="space-y-3">
+            <GroupBox label="About you" className="bg-w95-face">
+              <p className="mb-2 text-[11px] text-black">
+                The drafts can only state what you put here. Leave it empty and every personal
+                detail comes back as a <span className="font-mono">[bracketed blank]</span> for you
+                to fill in — the model is instructed never to invent your background.
+              </p>
+              <Textarea
+                id="applicant-background"
+                rows={4}
+                value={background}
+                onChange={(e) => setBackground(e.target.value)}
+                placeholder="e.g. 4 years backend Go at a fintech; led the payments migration; graduating MSc CS June 2026…"
+              />
+            </GroupBox>
 
-              {contacts.data?.map((c) => (
-                <ContactCard key={c.id} contact={c} background={background} />
-              ))}
-            </div>
-          )}
+            {busy && (
+              <div className="bevel-in-thin bg-w95-info px-3 py-2 text-[11px] text-black">
+                Searching public sources. This can take up to a minute.
+              </div>
+            )}
+
+            <ContactSection
+              heading="Recruiters &amp; hiring managers"
+              hint="People whose job is to receive applications."
+              emptyHint="None yet — choose “Find recruiters”."
+              contacts={recruiters}
+              background={background}
+              purpose="application"
+            />
+
+            <ContactSection
+              heading="Potential referrers"
+              hint="Senior people on the hiring team. A referral from here carries more weight than a cold application — but it is a favour, so ask on LinkedIn and only where you have a real reason."
+              emptyHint="None yet — choose “Find referrers”."
+              contacts={referrers}
+              background={background}
+              purpose="referral"
+            />
+          </div>
         </Win95Window>
       </div>
 
@@ -305,9 +338,52 @@ interface ContactRow {
   email_source_url: string | null;
   email_status: string;
   notes: string | null;
+  contact_type?: string;
 }
 
-function ContactCard({ contact, background }: { contact: ContactRow; background: string }) {
+function ContactSection({
+  heading,
+  hint,
+  emptyHint,
+  contacts,
+  background,
+  purpose,
+}: {
+  heading: string;
+  hint: string;
+  emptyHint: string;
+  contacts: ContactRow[];
+  background: string;
+  purpose: "application" | "referral";
+}) {
+  return (
+    <section>
+      <h2 className="text-[12px] font-bold text-black">{heading}</h2>
+      <p className="mt-1 mb-2 max-w-[70ch] text-[11px] text-w95-muted-text">{hint}</p>
+      {contacts.length === 0 ? (
+        <div className="bevel-in-thin bg-w95-info px-3 py-2 text-[11px] text-black">
+          {emptyHint}
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {contacts.map((c) => (
+            <ContactCard key={c.id} contact={c} background={background} purpose={purpose} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ContactCard({
+  contact,
+  background,
+  purpose,
+}: {
+  contact: ContactRow;
+  background: string;
+  purpose: "application" | "referral";
+}) {
   const draft = useServerFn(draftOutreach);
   const [channel, setChannel] = useState<"email" | "linkedin">(
     contact.email ? "email" : "linkedin",
@@ -321,6 +397,7 @@ function ContactCard({ contact, background }: { contact: ContactRow; background:
         data: {
           contactId: contact.id,
           channel,
+          purpose,
           // Omitted entirely when blank, so the server prompt takes its
           // "nothing is known about this applicant" branch.
           ...(background.trim() ? { extra: background.trim() } : {}),
