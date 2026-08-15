@@ -1,61 +1,75 @@
-import Anthropic, { APIError, AuthenticationError, RateLimitError } from "@anthropic-ai/sdk";
+import { GoogleGenAI, ApiError } from "@google/genai";
 
-const MODEL = "claude-opus-4-8";
+/*
+ * Gemini's free tier covers both jobs this app does (parsing a posting and
+ * drafting outreach). Model IDs move faster than this file will, so the default
+ * is overridable with GEMINI_MODEL rather than hard-coded at the call sites.
+ */
+const DEFAULT_MODEL = "gemini-2.0-flash";
 
-let client: Anthropic | undefined;
+let client: GoogleGenAI | undefined;
 
-function getClient(): Anthropic {
-  if (!process.env["ANTHROPIC_API_KEY"]) {
-    throw new Error("AI is not configured — set ANTHROPIC_API_KEY in your environment.");
+function getClient(): GoogleGenAI {
+  const apiKey = process.env["GEMINI_API_KEY"];
+  if (!apiKey) {
+    throw new Error("AI is not configured — set GEMINI_API_KEY in your environment.");
   }
-  client ??= new Anthropic();
+  client ??= new GoogleGenAI({ apiKey });
   return client;
 }
 
 export async function askAI(
   messages: { role: "system" | "user"; content: string }[],
-  model = MODEL,
+  options: { json?: boolean; model?: string } = {},
 ): Promise<string> {
-  // The Messages API takes the system prompt as a top-level field rather than a
-  // message role, so split it out of the caller's list.
+  // Gemini takes the system prompt as its own config field rather than a message
+  // role, so split it out of the caller's list.
   const system = messages
     .filter((m) => m.role === "system")
     .map((m) => m.content)
     .join("\n\n");
-  const turns = messages
+  const userText = messages
     .filter((m) => m.role === "user")
-    .map((m) => ({ role: "user" as const, content: m.content }));
+    .map((m) => m.content)
+    .join("\n\n");
 
-  if (!turns.length) throw new Error("askAI requires at least one user message.");
+  if (!userText) throw new Error("askAI requires at least one user message.");
 
   try {
-    const response = await getClient().messages.create({
-      model,
-      max_tokens: 4096,
-      thinking: { type: "adaptive" },
-      output_config: { effort: "low" },
-      ...(system ? { system } : {}),
-      messages: turns,
+    const response = await getClient().models.generateContent({
+      model: options.model ?? process.env["GEMINI_MODEL"] ?? DEFAULT_MODEL,
+      contents: userText,
+      config: {
+        maxOutputTokens: 4096,
+        ...(system ? { systemInstruction: system } : {}),
+        // Asking for JSON natively is far more reliable than stripping code
+        // fences off prose afterwards. parseJsonBlock stays as a safety net.
+        ...(options.json ? { responseMimeType: "application/json" } : {}),
+      },
     });
 
-    if (response.stop_reason === "refusal") {
-      throw new Error("The model declined this request. Try rephrasing the job description.");
+    const text = response.text?.trim();
+    if (!text) {
+      throw new Error("The model returned an empty response. Try again in a moment.");
     }
-
-    // Responses may interleave thinking blocks with text; keep only the text.
-    return response.content
-      .flatMap((block) => (block.type === "text" ? [block.text] : []))
-      .join("")
-      .trim();
+    return text;
   } catch (error) {
-    // Most specific first — RateLimitError and AuthenticationError both extend APIError.
-    if (error instanceof RateLimitError) {
-      throw new Error("Rate limit reached. Please try again in a moment.");
-    }
-    if (error instanceof AuthenticationError) {
-      throw new Error("AI credentials are invalid. Check ANTHROPIC_API_KEY.");
-    }
-    if (error instanceof APIError) {
+    if (error instanceof ApiError) {
+      if (error.status === 429) {
+        throw new Error(
+          "Rate limit reached. The Gemini free tier has per-minute and daily caps — wait a moment and try again.",
+        );
+      }
+      // Gemini reports a bad key as 400 INVALID_ARGUMENT rather than 401/403,
+      // so match on the message too — otherwise a typo'd key surfaces as an
+      // opaque "request failed [400]".
+      if (
+        error.status === 401 ||
+        error.status === 403 ||
+        /api key not valid|api_key_invalid/i.test(error.message)
+      ) {
+        throw new Error("AI credentials are invalid or lack access. Check GEMINI_API_KEY.");
+      }
       throw new Error(`AI request failed [${error.status}]: ${error.message.slice(0, 300)}`);
     }
     throw error;

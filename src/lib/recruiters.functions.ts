@@ -27,20 +27,23 @@ export const analyzeJob = createServerFn({ method: "POST" })
       if (fetched) pageText = `${pageText}\n\n${fetched}`.trim();
     }
 
-    const raw = await askAI([
-      {
-        role: "system",
-        content:
-          "You extract structured facts from job postings. Reply with JSON only: " +
-          '{"company":string,"role_title":string,"location":string|null,"company_domain":string|null,"summary":string}. ' +
-          "company_domain must be the company's real primary website domain (no www, no protocol) only if you are confident; otherwise null. " +
-          "Never use a job board domain as company_domain. summary is 1-2 sentences about the role.",
-      },
-      {
-        role: "user",
-        content: `Job URL: ${data.jobUrl ?? "n/a"}\n\nJob content:\n${pageText.slice(0, 12000) || "(none provided)"}`,
-      },
-    ]);
+    const raw = await askAI(
+      [
+        {
+          role: "system",
+          content:
+            "You extract structured facts from job postings. Reply with JSON only: " +
+            '{"company":string,"role_title":string,"location":string|null,"company_domain":string|null,"summary":string}. ' +
+            "company_domain must be the company's real primary website domain (no www, no protocol) only if you are confident; otherwise null. " +
+            "Never use a job board domain as company_domain. summary is 1-2 sentences about the role.",
+        },
+        {
+          role: "user",
+          content: `Job URL: ${data.jobUrl ?? "n/a"}\n\nJob content:\n${pageText.slice(0, 12000) || "(none provided)"}`,
+        },
+      ],
+      { json: true },
+    );
 
     const parsed = parseJsonBlock<AnalyzedJob>(raw, {
       company: "",
@@ -206,29 +209,32 @@ export const draftOutreach = createServerFn({ method: "POST" })
     ).job_targets;
 
     const limit = data.channel === "linkedin" ? "under 280 characters" : "under 160 words";
-    const message = await askAI([
-      {
-        role: "system",
-        content: `You write short, specific, non-cringe outreach from a job applicant to a recruiter or hiring manager. Keep it ${limit}, plain language, no buzzwords, no emojis, no fake familiarity. End with one clear, low-friction ask.`,
-      },
-      {
-        role: "user",
-        content: [
-          `Applicant name: ${profile?.full_name ?? "the applicant"}`,
-          `Recipient: ${contact.name ?? "the recruiting team"}${contact.title ? ` (${contact.title})` : ""}`,
-          `Company: ${target.company}`,
-          `Role: ${target.role_title}`,
-          `Channel: ${data.channel}`,
-          data.extra ? `Applicant background / notes: ${data.extra}` : "",
-          target.job_description ? `Job details: ${target.job_description.slice(0, 1500)}` : "",
-          data.channel === "email"
-            ? 'Return JSON only: {"subject": string, "body": string}.'
-            : 'Return JSON only: {"subject": null, "body": string}.',
-        ]
-          .filter(Boolean)
-          .join("\n"),
-      },
-    ]);
+    const message = await askAI(
+      [
+        {
+          role: "system",
+          content: `You write short, specific, non-cringe outreach from a job applicant to a recruiter or hiring manager. Keep it ${limit}, plain language, no buzzwords, no emojis, no fake familiarity. End with one clear, low-friction ask.`,
+        },
+        {
+          role: "user",
+          content: [
+            `Applicant name: ${profile?.full_name ?? "the applicant"}`,
+            `Recipient: ${contact.name ?? "the recruiting team"}${contact.title ? ` (${contact.title})` : ""}`,
+            `Company: ${target.company}`,
+            `Role: ${target.role_title}`,
+            `Channel: ${data.channel}`,
+            data.extra ? `Applicant background / notes: ${data.extra}` : "",
+            target.job_description ? `Job details: ${target.job_description.slice(0, 1500)}` : "",
+            data.channel === "email"
+              ? 'Return JSON only: {"subject": string, "body": string}.'
+              : 'Return JSON only: {"subject": null, "body": string}.',
+          ]
+            .filter(Boolean)
+            .join("\n"),
+        },
+      ],
+      { json: true },
+    );
 
     const { parseJsonBlock } = await import("./ai.server");
     const parsed = parseJsonBlock<{ subject: string | null; body: string }>(message, {

@@ -21,7 +21,7 @@ exists, the app says so and points you at LinkedIn instead.
 
 - **Frontend/SSR:** TanStack Start (React 19) on Vite, Tailwind CSS v4, shadcn/ui
 - **Backend:** Supabase (Postgres, Auth, row-level security)
-- **AI:** Anthropic Claude via `@anthropic-ai/sdk`
+- **AI:** Google Gemini via `@google/genai` (free tier)
 
 ## Development
 
@@ -38,7 +38,7 @@ The dev server runs on http://localhost:8080.
 ### Environment variables
 
 See [.env.example](.env.example). At minimum you need the Supabase project variables and
-`ANTHROPIC_API_KEY`. `SERPER_API_KEY` is optional but strongly recommended — without it,
+`GEMINI_API_KEY`. `SERPER_API_KEY` is optional but strongly recommended — without it,
 recruiter discovery falls back to scraping public search engines, which throttle heavily and
 return far worse results.
 
