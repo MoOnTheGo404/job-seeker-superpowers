@@ -49,6 +49,7 @@ return far worse results.
 | `npm run dev`       | Start the dev server on port 8080 |
 | `npm run build`     | Production build                  |
 | `npm run typecheck` | Type-check without emitting       |
+| `npm test`          | Run unit tests (Vitest)           |
 | `npm run lint`      | Lint with ESLint                  |
 | `npm run format`    | Format with Prettier              |
 
