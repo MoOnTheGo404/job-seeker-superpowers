@@ -59,6 +59,31 @@ function DesktopIcon({ icon: Icon, label, to }: { icon: typeof Radar; label: str
   );
 }
 
+/**
+ * Bring the "How it works" window to the user's attention.
+ *
+ * On wide screens both windows already fit on screen, so the page cannot
+ * scroll and a plain `#how` jump is a silent no-op — the button looks broken.
+ * Focusing the section as well means the control always produces something
+ * visible, whether or not there is anywhere to scroll to.
+ */
+function revealHowItWorks(event: React.MouseEvent<HTMLAnchorElement>) {
+  const section = document.getElementById("how");
+  if (!section) return; // No JS-free fallback needed; the href still works.
+  event.preventDefault();
+  section.scrollIntoView({ behavior: "smooth", block: "start" });
+
+  // Restart the flash even on repeat clicks — without removing the class first
+  // the animation would only ever play once.
+  section.classList.remove("attention");
+  void section.offsetWidth;
+  section.classList.add("attention");
+
+  // Deferred past this click, otherwise the browser hands focus back to the
+  // anchor immediately afterwards and the move is lost.
+  requestAnimationFrame(() => section.focus({ preventScroll: true }));
+}
+
 function Landing() {
   const { user } = useAuth();
 
@@ -102,41 +127,51 @@ function Landing() {
                 </Link>
               </Button>
               <Button asChild size="lg" variant="secondary" className="min-w-[110px]">
-                <a href="#how">How it works</a>
+                <a href="#how" onClick={revealHowItWorks}>
+                  How it works
+                </a>
               </Button>
             </div>
           </Win95Window>
 
-          <Win95Window
-            title="How it works"
-            icon={<Search className="size-3.5 text-black" />}
-            status={["3 steps", "Zero guesswork"]}
-            bodyClassName="bg-w95-face p-4"
-          >
-            <div id="how" className="grid gap-3 sm:grid-cols-3">
-              {STEPS.map((s) => (
-                <GroupBox key={s.title} label={s.title} className="bg-w95-face">
-                  <s.icon className="mb-2 size-6 text-black" />
-                  <p className="text-[11px] text-black">{s.body}</p>
-                </GroupBox>
-              ))}
-            </div>
-
-            <div className="bevel-in-thin mt-4 flex flex-wrap items-center justify-between gap-3 bg-w95-face px-3 py-3">
-              <div>
-                <h2 className="text-[12px] font-bold text-black">Stop applying into the void</h2>
-                <p className="mt-1 max-w-[46ch] text-[11px] text-black">
-                  Track every application, keep contacts and outreach in one place, and follow up
-                  like someone who did their homework.
-                </p>
+          {/*
+            The scroll target is the whole window, not the steps inside it, so
+            jumping here doesn't leave the title bar cropped off the top.
+            tabIndex -1 makes it programmatically focusable; the focus ring is
+            what signals "here it is" on screens where nothing actually scrolls.
+          */}
+          <div id="how" tabIndex={-1} className="scroll-mt-4">
+            <Win95Window
+              title="How it works"
+              icon={<Search className="size-3.5 text-black" />}
+              status={["3 steps", "Zero guesswork"]}
+              bodyClassName="bg-w95-face p-4"
+            >
+              <div className="grid gap-3 sm:grid-cols-3">
+                {STEPS.map((s) => (
+                  <GroupBox key={s.title} label={s.title} className="bg-w95-face">
+                    <s.icon className="mb-2 size-6 text-black" />
+                    <p className="text-[11px] text-black">{s.body}</p>
+                  </GroupBox>
+                ))}
               </div>
-              <Button asChild className="min-w-[120px]">
-                <Link to={user ? "/dashboard" : "/auth"}>
-                  {user ? "Go to dashboard" : "Create account"}
-                </Link>
-              </Button>
-            </div>
-          </Win95Window>
+
+              <div className="bevel-in-thin mt-4 flex flex-wrap items-center justify-between gap-3 bg-w95-face px-3 py-3">
+                <div>
+                  <h2 className="text-[12px] font-bold text-black">Stop applying into the void</h2>
+                  <p className="mt-1 max-w-[46ch] text-[11px] text-black">
+                    Track every application, keep contacts and outreach in one place, and follow up
+                    like someone who did their homework.
+                  </p>
+                </div>
+                <Button asChild className="min-w-[120px]">
+                  <Link to={user ? "/dashboard" : "/auth"}>
+                    {user ? "Go to dashboard" : "Create account"}
+                  </Link>
+                </Button>
+              </div>
+            </Win95Window>
+          </div>
         </div>
       </div>
 

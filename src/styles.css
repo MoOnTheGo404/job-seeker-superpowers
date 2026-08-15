@@ -300,6 +300,34 @@
   font-weight: 700;
 }
 
+/*
+ * "Look here" flash.
+ *
+ * Win95 flashed a window's title bar to demand attention, which is exactly the
+ * affordance needed when a jump link has nowhere to scroll to. Plain CSS rather
+ * than a focus variant: programmatic focus() does not reliably trigger
+ * :focus-visible, and the element loses focus to the clicked anchor anyway.
+ *
+ * Animates outline-COLOR against an always-present transparent outline, rather
+ * than animating outline-style from none. Style is a discrete property and
+ * would not have flipped reliably; colour interpolates everywhere.
+ */
+@keyframes w95-attention {
+  0%,
+  100% {
+    outline-color: transparent;
+  }
+  50% {
+    outline-color: var(--w95-title);
+  }
+}
+
+@utility attention {
+  outline: 3px solid transparent;
+  outline-offset: 2px;
+  animation: w95-attention 0.45s ease-in-out 2;
+}
+
 /* 50% dither, the standard Win95 disabled/inactive fill. */
 @utility dither {
   background-image:
