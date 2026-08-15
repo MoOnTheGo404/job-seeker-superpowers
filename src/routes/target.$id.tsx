@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import {
@@ -45,6 +45,35 @@ export const Route = createFileRoute("/target/$id")({
 
 const STATUSES = ["researching", "contacted", "applied", "interviewing", "closed"];
 
+const BACKGROUND_KEY = "reachpoint:applicant-background";
+
+/**
+ * The applicant's own background, the only facts a draft is allowed to state
+ * about them.
+ *
+ * Kept in localStorage rather than the profiles table so it carries across
+ * every target without a migration. Worth moving server-side later if it
+ * should follow the user between devices.
+ */
+function useApplicantBackground() {
+  const [background, setBackground] = useState("");
+  const hydrated = useRef(false);
+
+  // Read after mount: localStorage does not exist during SSR, so seeding
+  // useState from it directly would desync the server and client renders.
+  useEffect(() => {
+    setBackground(localStorage.getItem(BACKGROUND_KEY) ?? "");
+    hydrated.current = true;
+  }, []);
+
+  useEffect(() => {
+    // Guarded so the pre-hydration empty string can't wipe a stored value.
+    if (hydrated.current) localStorage.setItem(BACKGROUND_KEY, background);
+  }, [background]);
+
+  return [background, setBackground] as const;
+}
+
 /** Win95 combo box: sunken field plus a beveled drop-down arrow on the right. */
 function W95Select({
   value,
@@ -85,6 +114,7 @@ function TargetPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const runDiscovery = useServerFn(discoverContacts);
+  const [background, setBackground] = useApplicantBackground();
 
   useEffect(() => {
     if (!loading && !user) navigate({ to: "/auth" });
@@ -237,8 +267,23 @@ function TargetPage() {
             </div>
           ) : (
             <div className="space-y-3">
+              <GroupBox label="About you" className="bg-w95-face">
+                <p className="mb-2 text-[11px] text-black">
+                  The drafts can only state what you put here. Leave it empty and every personal
+                  detail comes back as a <span className="font-mono">[bracketed blank]</span> for
+                  you to fill in — the model is instructed never to invent your background.
+                </p>
+                <Textarea
+                  id="applicant-background"
+                  rows={4}
+                  value={background}
+                  onChange={(e) => setBackground(e.target.value)}
+                  placeholder="e.g. 4 years backend Go at a fintech; led the payments migration; graduating MSc CS June 2026…"
+                />
+              </GroupBox>
+
               {contacts.data?.map((c) => (
-                <ContactCard key={c.id} contact={c} />
+                <ContactCard key={c.id} contact={c} background={background} />
               ))}
             </div>
           )}
@@ -262,7 +307,7 @@ interface ContactRow {
   notes: string | null;
 }
 
-function ContactCard({ contact }: { contact: ContactRow }) {
+function ContactCard({ contact, background }: { contact: ContactRow; background: string }) {
   const draft = useServerFn(draftOutreach);
   const [channel, setChannel] = useState<"email" | "linkedin">(
     contact.email ? "email" : "linkedin",
@@ -271,7 +316,16 @@ function ContactCard({ contact }: { contact: ContactRow }) {
   const [subject, setSubject] = useState<string | null>(null);
 
   const generate = useMutation({
-    mutationFn: async () => draft({ data: { contactId: contact.id, channel } }),
+    mutationFn: async () =>
+      draft({
+        data: {
+          contactId: contact.id,
+          channel,
+          // Omitted entirely when blank, so the server prompt takes its
+          // "nothing is known about this applicant" branch.
+          ...(background.trim() ? { extra: background.trim() } : {}),
+        },
+      }),
     onSuccess: (row) => {
       setMessage(row.message);
       setSubject(row.subject);

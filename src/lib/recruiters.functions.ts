@@ -215,7 +215,21 @@ export const draftOutreach = createServerFn({ method: "POST" })
       [
         {
           role: "system",
-          content: `You write short, specific, non-cringe outreach from a job applicant to a recruiter or hiring manager. Keep it ${limit}, plain language, no buzzwords, no emojis, no fake familiarity. End with one clear, low-friction ask.`,
+          content: [
+            `You write short, non-cringe outreach from a job applicant to a recruiter or hiring manager. Keep it ${limit}, plain language, no buzzwords, no emojis, no fake familiarity. End with one clear, low-friction ask.`,
+            "",
+            "NEVER invent facts about the applicant. You know only what is listed in the next message.",
+            "You do not know their graduation date, university, degree, employers, job titles, years of",
+            "experience, skills, tools, metrics, or achievements unless they are stated there explicitly.",
+            "Do not infer them, do not estimate them, and do not write a plausible-sounding placeholder",
+            "as though it were fact.",
+            "",
+            "Where a personal detail would strengthen the message but was not provided, write a short",
+            "bracketed instruction for the applicant to fill in — for example",
+            "'[one line on your most relevant project]'. A visible blank is always better than a",
+            "confident guess: this message gets sent to a real person, and an invented detail is a lie",
+            "in the applicant's name.",
+          ].join("\n"),
         },
         {
           role: "user",
@@ -225,7 +239,9 @@ export const draftOutreach = createServerFn({ method: "POST" })
             `Company: ${target.company}`,
             `Role: ${target.role_title}`,
             `Channel: ${data.channel}`,
-            data.extra ? `Applicant background / notes: ${data.extra}` : "",
+            data.extra
+              ? `Applicant background (the ONLY facts you may state about them): ${data.extra}`
+              : "Applicant background: NOT PROVIDED. You know nothing about this applicant beyond their name. Use bracketed placeholders for every personal detail.",
             target.job_description ? `Job details: ${target.job_description.slice(0, 1500)}` : "",
             data.channel === "email"
               ? 'Return JSON only: {"subject": string, "body": string}.'
@@ -235,7 +251,8 @@ export const draftOutreach = createServerFn({ method: "POST" })
             .join("\n"),
         },
       ],
-      { json: true },
+      // Thinking off: faster, and less likely to hit free-tier capacity limits.
+      { json: true, thinking: false },
     );
 
     const { parseJsonBlock } = await import("./ai.server");
