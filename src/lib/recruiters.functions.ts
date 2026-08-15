@@ -42,7 +42,9 @@ export const analyzeJob = createServerFn({ method: "POST" })
           content: `Job URL: ${data.jobUrl ?? "n/a"}\n\nJob content:\n${pageText.slice(0, 12000) || "(none provided)"}`,
         },
       ],
-      { json: true },
+      // Pure field extraction — no reasoning to do, and skipping thinking cuts
+      // this call from ~8s to under a second.
+      { json: true, thinking: false },
     );
 
     const parsed = parseJsonBlock<AnalyzedJob>(raw, {

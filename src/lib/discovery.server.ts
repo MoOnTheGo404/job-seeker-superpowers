@@ -319,7 +319,17 @@ async function serperSearch(
       headers: { "X-API-KEY": key, "Content-Type": "application/json" },
       body: JSON.stringify({ q: query, num: 20 }),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      // Returning null drops back to scraped engines — a large quality cliff
+      // that is otherwise invisible. The free tier rejects `site:` and quoted
+      // phrases with a 400, so surface it rather than silently degrading.
+      console.warn(
+        `[discovery] Serper ${res.status} for "${query}" — falling back to scraped search. ${(
+          await res.text()
+        ).slice(0, 160)}`,
+      );
+      return null;
+    }
     const json = (await res.json()) as {
       organic?: { title?: string; link?: string; snippet?: string }[];
     };
@@ -358,10 +368,19 @@ export async function findLinkedInProfiles(
   company: string,
   roleTitle: string,
 ): Promise<FoundProfile[]> {
+  /*
+   * Deliberately operator-free: no `site:` and no quoted phrases.
+   *
+   * Serper's free tier rejects both with `400 Query pattern not allowed for
+   * free accounts`, and serperSearch treats any non-OK response as "no API",
+   * so operators would silently drop discovery back to scraping. Naming
+   * linkedin.com/in as a plain term works on every backend, and the
+   * linkedin.com/in URL filter below does the narrowing that `site:` used to.
+   */
   const queries = [
-    `site:linkedin.com/in "${company}" recruiter`,
-    `site:linkedin.com/in "${company}" talent acquisition`,
-    `site:linkedin.com/in "${company}" hiring manager ${roleTitle}`,
+    `${company} recruiter linkedin.com/in`,
+    `${company} talent acquisition linkedin.com/in`,
+    `${company} hiring manager ${roleTitle} linkedin.com/in`,
   ];
   const seen = new Map<string, FoundProfile>();
   for (const [index, query] of queries.entries()) {
@@ -395,7 +414,10 @@ export async function searchPersonEmail(
   company: string,
   domain: string | null,
 ): Promise<FoundEmail | null> {
-  const query = domain ? `"${name}" "@${domain}"` : `"${name}" "${company}" email`;
+  // Unquoted for the same free-tier reason as findLinkedInProfiles. Precision
+  // is recovered by matchesPerson, which checks the address against both the
+  // person's name and the company domain before it is ever surfaced.
+  const query = domain ? `${name} email ${domain}` : `${name} ${company} email`;
   const results = (await webSearch(query)).slice(0, 4);
 
   // Snippets are already in hand — scan them all before paying for any fetch.

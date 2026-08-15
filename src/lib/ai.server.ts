@@ -2,10 +2,14 @@ import { GoogleGenAI, ApiError } from "@google/genai";
 
 /*
  * Gemini's free tier covers both jobs this app does (parsing a posting and
- * drafting outreach). Model IDs move faster than this file will, so the default
- * is overridable with GEMINI_MODEL rather than hard-coded at the call sites.
+ * drafting outreach).
+ *
+ * Deliberately an alias, not a pinned version. Pinned IDs get retired out from
+ * under you — `gemini-2.0-flash` and `gemini-2.5-flash` both already 404 for
+ * new keys. `-latest` tracks the current flash model instead. Override with
+ * GEMINI_MODEL if you want to pin one anyway.
  */
-const DEFAULT_MODEL = "gemini-2.0-flash";
+const DEFAULT_MODEL = "gemini-flash-latest";
 
 let client: GoogleGenAI | undefined;
 
@@ -20,7 +24,7 @@ function getClient(): GoogleGenAI {
 
 export async function askAI(
   messages: { role: "system" | "user"; content: string }[],
-  options: { json?: boolean; model?: string } = {},
+  options: { json?: boolean; model?: string; thinking?: boolean } = {},
 ): Promise<string> {
   // Gemini takes the system prompt as its own config field rather than a message
   // role, so split it out of the caller's list.
@@ -45,6 +49,10 @@ export async function askAI(
         // Asking for JSON natively is far more reliable than stripping code
         // fences off prose afterwards. parseJsonBlock stays as a safety net.
         ...(options.json ? { responseMimeType: "application/json" } : {}),
+        // Thinking is on by default. Straight extraction gains nothing from it
+        // and pays ~9x the latency (measured: 7.9s vs 0.9s), so callers doing
+        // pure field-pulling opt out. Anything that writes prose leaves it on.
+        ...(options.thinking === false ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
       },
     });
 
