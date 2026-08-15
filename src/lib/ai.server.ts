@@ -11,6 +11,24 @@ import { GoogleGenAI, ApiError } from "@google/genai";
  */
 const DEFAULT_MODEL = "gemini-flash-latest";
 
+/** Transient statuses worth retrying: capacity, gateway blips, rate windows. */
+const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
+const MAX_ATTEMPTS = 3;
+
+/**
+ * The SDK puts the raw JSON error envelope in `message`. Pull the human
+ * sentence out of it so users see the reason, not a wall of braces.
+ */
+function humanMessage(raw: string): string {
+  try {
+    const parsed = JSON.parse(raw) as { error?: { message?: string } };
+    if (parsed.error?.message) return parsed.error.message.slice(0, 300);
+  } catch {
+    // Not JSON — fall through and use it as-is.
+  }
+  return raw.slice(0, 300);
+}
+
 let client: GoogleGenAI | undefined;
 
 function getClient(): GoogleGenAI {
@@ -47,49 +65,73 @@ export async function askAI(
    */
   const model = options.model?.trim() || process.env["GEMINI_MODEL"]?.trim() || DEFAULT_MODEL;
 
-  try {
-    const response = await getClient().models.generateContent({
-      model,
-      contents: userText,
-      config: {
-        maxOutputTokens: 4096,
-        ...(system ? { systemInstruction: system } : {}),
-        // Asking for JSON natively is far more reliable than stripping code
-        // fences off prose afterwards. parseJsonBlock stays as a safety net.
-        ...(options.json ? { responseMimeType: "application/json" } : {}),
-        // Thinking is on by default. Straight extraction gains nothing from it
-        // and pays ~9x the latency (measured: 7.9s vs 0.9s), so callers doing
-        // pure field-pulling opt out. Anything that writes prose leaves it on.
-        ...(options.thinking === false ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
-      },
-    });
+  let lastError: unknown;
 
-    const text = response.text?.trim();
-    if (!text) {
-      throw new Error("The model returned an empty response. Try again in a moment.");
-    }
-    return text;
-  } catch (error) {
-    if (error instanceof ApiError) {
-      if (error.status === 429) {
-        throw new Error(
-          "Rate limit reached. The Gemini free tier has per-minute and daily caps — wait a moment and try again.",
-        );
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const response = await getClient().models.generateContent({
+        model,
+        contents: userText,
+        config: {
+          maxOutputTokens: 4096,
+          ...(system ? { systemInstruction: system } : {}),
+          // Asking for JSON natively is far more reliable than stripping code
+          // fences off prose afterwards. parseJsonBlock stays as a safety net.
+          ...(options.json ? { responseMimeType: "application/json" } : {}),
+          // Thinking is on by default. Straight extraction gains nothing from it
+          // and pays ~9x the latency (measured: 7.9s vs 0.9s), so callers doing
+          // pure field-pulling opt out. Anything that writes prose leaves it on.
+          ...(options.thinking === false ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
+        },
+      });
+
+      const text = response.text?.trim();
+      if (!text) {
+        throw new Error("The model returned an empty response. Try again in a moment.");
       }
-      // Gemini reports a bad key as 400 INVALID_ARGUMENT rather than 401/403,
-      // so match on the message too — otherwise a typo'd key surfaces as an
-      // opaque "request failed [400]".
-      if (
-        error.status === 401 ||
-        error.status === 403 ||
-        /api key not valid|api_key_invalid/i.test(error.message)
-      ) {
-        throw new Error("AI credentials are invalid or lack access. Check GEMINI_API_KEY.");
+      return text;
+    } catch (error) {
+      lastError = error;
+
+      // 503 (capacity) and 5xx are transient and clear on their own; a shared
+      // free tier hits them regularly. Back off and retry rather than making
+      // the user re-click. 429 is included because the free tier's per-minute
+      // window recovers quickly, though a daily cap will still exhaust retries.
+      const retryable = error instanceof ApiError && RETRYABLE_STATUS.has(error.status);
+      if (retryable && attempt < MAX_ATTEMPTS) {
+        const backoffMs = 700 * 2 ** (attempt - 1) + Math.random() * 300;
+        await new Promise((resolve) => setTimeout(resolve, backoffMs));
+        continue;
       }
-      throw new Error(`AI request failed [${error.status}]: ${error.message.slice(0, 300)}`);
+      break;
     }
-    throw error;
   }
+
+  const error = lastError;
+  if (error instanceof ApiError) {
+    if (error.status === 429) {
+      throw new Error(
+        "Rate limit reached. The Gemini free tier has per-minute and daily caps — wait a moment and try again.",
+      );
+    }
+    if (RETRYABLE_STATUS.has(error.status)) {
+      throw new Error(
+        `Gemini is busy right now (${error.status}). This is usually brief — try again in a moment.`,
+      );
+    }
+    // Gemini reports a bad key as 400 INVALID_ARGUMENT rather than 401/403,
+    // so match on the message too — otherwise a typo'd key surfaces as an
+    // opaque "request failed [400]".
+    if (
+      error.status === 401 ||
+      error.status === 403 ||
+      /api key not valid|api_key_invalid/i.test(error.message)
+    ) {
+      throw new Error("AI credentials are invalid or lack access. Check GEMINI_API_KEY.");
+    }
+    throw new Error(`AI request failed [${error.status}]: ${humanMessage(error.message)}`);
+  }
+  throw error;
 }
 
 export function parseJsonBlock<T>(text: string, fallback: T): T {
