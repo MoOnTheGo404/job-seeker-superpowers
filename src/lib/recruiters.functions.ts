@@ -19,7 +19,10 @@ export const analyzeJob = createServerFn({ method: "POST" })
       throw new Error("Paste a job link or the job description.");
     return input;
   })
-  .handler(async ({ data }): Promise<AnalyzedJob> => {
+  .handler(async ({ data, context }): Promise<AnalyzedJob> => {
+    const { enforceRateLimit } = await import("./ratelimit.server");
+    await enforceRateLimit(context.supabase, "analyze_job");
+
     const { askAI, parseJsonBlock } = await import("./ai.server");
     const { hostFromUrl, isJobBoard } = await import("./discovery.server");
 
@@ -91,6 +94,9 @@ export const discoverContacts = createServerFn({ method: "POST" })
   })
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
+    const { enforceRateLimit } = await import("./ratelimit.server");
+    await enforceRateLimit(supabase, "discover_contacts");
+
     const { data: target, error } = await supabase
       .from("job_targets")
       .select("*")
@@ -98,6 +104,9 @@ export const discoverContacts = createServerFn({ method: "POST" })
       .maybeSingle();
     if (error) throw new Error(error.message);
     if (!target) throw new Error("Job target not found.");
+
+    const { createSearchCache } = await import("./cache.server");
+    const cache = createSearchCache(supabase);
 
     const {
       crawlCompanyEmails,
@@ -110,7 +119,7 @@ export const discoverContacts = createServerFn({ method: "POST" })
     const domain = target.company_domain ? await verifyDomain(target.company_domain) : null;
 
     const [profiles, inboxEmails] = await Promise.all([
-      findLinkedInProfiles(target.company, target.role_title),
+      findLinkedInProfiles(target.company, target.role_title, cache),
       domain ? crawlCompanyEmails(domain) : Promise.resolve([]),
     ]);
 
@@ -123,7 +132,7 @@ export const discoverContacts = createServerFn({ method: "POST" })
     const personEmails = await Promise.all(
       topProfiles.map((profile) =>
         // One profile failing to resolve shouldn't sink the whole discovery run.
-        searchPersonEmail(profile.name, target.company, domain).catch(() => null),
+        searchPersonEmail(profile.name, target.company, domain, cache).catch(() => null),
       ),
     );
 
@@ -221,6 +230,9 @@ export const discoverReferrers = createServerFn({ method: "POST" })
   })
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
+    const { enforceRateLimit } = await import("./ratelimit.server");
+    await enforceRateLimit(supabase, "discover_referrers");
+
     const { data: target, error } = await supabase
       .from("job_targets")
       .select("*")
@@ -229,12 +241,14 @@ export const discoverReferrers = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
     if (!target) throw new Error("Job target not found.");
 
+    const { createSearchCache } = await import("./cache.server");
     const { findReferralProfiles, linkedInPeopleSearchUrl } = await import("./discovery.server");
 
     const profiles = await findReferralProfiles(
       target.company,
       target.department,
       target.role_title,
+      createSearchCache(supabase),
     );
 
     const contacts: DiscoveredContact[] = profiles.map((profile) => ({
@@ -302,6 +316,9 @@ export const draftOutreach = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
+    const { enforceRateLimit } = await import("./ratelimit.server");
+    await enforceRateLimit(supabase, "draft_outreach");
+
     const { askAI } = await import("./ai.server");
 
     const { data: contact } = await supabase

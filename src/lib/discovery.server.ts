@@ -215,12 +215,39 @@ async function serperSearch(
   }
 }
 
-/** Public web search across a few engines, with fallbacks when one throttles us. */
-export async function webSearch(
-  query: string,
-): Promise<{ title: string; url: string; snippet: string }[]> {
+export interface SearchResult {
+  title: string;
+  url: string;
+  snippet: string;
+}
+
+/**
+ * Injectable cache for search results. Kept as an interface so this module
+ * stays free of any Supabase dependency — see cache.server.ts for the
+ * Postgres-backed implementation, and so tests can pass a fake.
+ */
+export interface SearchCache {
+  get(query: string): Promise<SearchResult[] | null>;
+  set(query: string, results: SearchResult[]): Promise<void>;
+}
+
+/**
+ * Public web search across a few engines, with fallbacks when one throttles us.
+ *
+ * The cache wraps every backend, which is the whole point: search is the
+ * scarcest resource here, and two users targeting the same company issue
+ * identical queries.
+ */
+export async function webSearch(query: string, cache?: SearchCache): Promise<SearchResult[]> {
+  const cached = await cache?.get(query);
+  if (cached?.length) return cached;
+
   const viaApi = await serperSearch(query);
-  if (viaApi && viaApi.length) return viaApi.slice(0, 20);
+  if (viaApi && viaApi.length) {
+    const results = viaApi.slice(0, 20);
+    await cache?.set(query, results);
+    return results;
+  }
 
   for (const build of SEARCH_ENGINES) {
     const html = await fetchText(build(query), 9000);
@@ -232,7 +259,11 @@ export async function webSearch(
     )
       continue;
     const results = parseResults(html);
-    if (results.length) return results.slice(0, 20);
+    if (results.length) {
+      const top = results.slice(0, 20);
+      await cache?.set(query, top);
+      return top;
+    }
   }
   return [];
 }
@@ -241,6 +272,7 @@ export async function webSearch(
 export async function findLinkedInProfiles(
   company: string,
   roleTitle: string,
+  cache?: SearchCache,
 ): Promise<FoundProfile[]> {
   /*
    * Deliberately operator-free: no `site:` and no quoted phrases.
@@ -259,7 +291,7 @@ export async function findLinkedInProfiles(
   const seen = new Map<string, FoundProfile>();
   for (const [index, query] of queries.entries()) {
     if (seen.size >= 8) break;
-    const results = await webSearch(query);
+    const results = await webSearch(query, cache);
     for (const r of results) {
       if (!/linkedin\.com\/in\//i.test(r.url)) continue;
       const url = r.url.split("?")[0]!;
@@ -283,12 +315,13 @@ export async function searchPersonEmail(
   name: string,
   company: string,
   domain: string | null,
+  cache?: SearchCache,
 ): Promise<FoundEmail | null> {
   // Unquoted for the same free-tier reason as findLinkedInProfiles. Precision
   // is recovered by matchesPerson, which checks the address against both the
   // person's name and the company domain before it is ever surfaced.
   const query = domain ? `${name} email ${domain}` : `${name} ${company} email`;
-  const results = (await webSearch(query)).slice(0, 4);
+  const results = (await webSearch(query, cache)).slice(0, 4);
 
   // Snippets are already in hand — scan them all before paying for any fetch.
   for (const r of results) {
@@ -328,6 +361,7 @@ export async function findReferralProfiles(
   company: string,
   department: string | null,
   roleTitle: string,
+  cache?: SearchCache,
 ): Promise<FoundProfile[]> {
   const focus = department ?? roleTitle;
   // Operator-free for the same free-tier reason as findLinkedInProfiles.
@@ -339,7 +373,7 @@ export async function findReferralProfiles(
 
   const seen = new Map<string, FoundProfile & { score: number }>();
   for (const [index, query] of queries.entries()) {
-    const results = await webSearch(query);
+    const results = await webSearch(query, cache);
     for (const r of results) {
       if (!/linkedin\.com\/in\//i.test(r.url)) continue;
       const url = r.url.split("?")[0]!;
