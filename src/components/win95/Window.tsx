@@ -127,7 +127,7 @@ export function Win95Window({
   children: ReactNode;
 }) {
   return (
-    <div className={cn("bevel-out flex flex-col p-[3px]", className)}>
+    <div className={cn("window-frame flex flex-col p-[3px]", className)}>
       <TitleBar
         title={title}
         {...(icon !== undefined ? { icon } : {})}

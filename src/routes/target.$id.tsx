@@ -142,7 +142,7 @@ function TargetPage() {
       <div className="mx-auto w-full max-w-4xl space-y-4 px-4 py-4">
         <Link
           to="/dashboard"
-          className="inline-flex items-center gap-1 text-[11px] text-white hover:underline"
+          className="inline-flex items-center gap-1 text-[11px] text-[#0000ee] underline hover:text-[#551a8b]"
         >
           <ArrowLeft className="size-3.5" /> All job targets
         </Link>
@@ -352,7 +352,7 @@ function ContactCard({ contact }: { contact: ContactRow }) {
           )}
         </div>
 
-        {contact.notes && <p className="text-w95-shadow">{contact.notes}</p>}
+        {contact.notes && <p className="text-w95-muted-text">{contact.notes}</p>}
       </div>
 
       <div className="mt-3 border-t border-t-w95-shadow pt-3">

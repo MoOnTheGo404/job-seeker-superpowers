@@ -68,7 +68,8 @@
   --w95-light: #ffffff; /* outer top-left bevel */
   --w95-shadow: #808080; /* inner bottom-right bevel */
   --w95-darkest: #000000; /* outer bottom-right bevel */
-  --w95-desktop: #008080; /* the famous teal */
+  --w95-desktop: #ffffff; /* desktop backdrop */
+  --w95-muted-text: #555555; /* secondary text on gray chrome — 4.9:1 */
   --w95-title: #000080; /* active title bar navy */
   --w95-title-inactive: #808080;
   --w95-field: #ffffff; /* sunken input background */
@@ -88,7 +89,7 @@
   --secondary: var(--w95-face);
   --secondary-foreground: #000000;
   --muted: var(--w95-face);
-  --muted-foreground: #3f3f3f;
+  --muted-foreground: var(--w95-muted-text);
   --accent: var(--w95-selection);
   --accent-foreground: var(--w95-selection-fg);
   --destructive: #aa0000;
@@ -127,8 +128,13 @@
     url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMiIgaGVpZ2h0PSIzMiIgdmlld0JveD0iMCAwIDE2IDE2IiBzaGFwZS1yZW5kZXJpbmc9ImNyaXNwRWRnZXMiPjxwYXRoIGQ9Ik00IDFoOHYzaC0xdjJoLTF2MmgtMXYyaDF2MmgxdjJoMXYzSDR2LTNoMXYtMmgxdi0yaDF2LTJINnYtMkg1VjRINFoiIGZpbGw9IiMwMDAiLz48cGF0aCBkPSJNNSAyaDZ2Mkg1Wm0xIDNoNHYyaC0xdjJIN1Y3SDZabS0xIDdoNnYySDVaIiBmaWxsPSIjZmZmIi8+PHBhdGggZD0iTTYgMTBoNHYySDZaIiBmaWxsPSIjMDBmIi8+PC9zdmc+")
       16 16,
     wait;
+  /*
+   * One I-beam. The previous base64 blob encoded two subpaths side by side,
+   * which drew two cursors. Kept URL-encoded rather than base64 so the shape
+   * stays readable and reviewable in place.
+   */
   --cursor-text:
-    url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgdmlld0JveD0iMCAwIDE2IDE2IiBzaGFwZS1yZW5kZXJpbmc9ImNyaXNwRWRnZXMiPjxwYXRoIGQ9Ik00IDJoM3YxSDZ2MTBoMXYxSDR2LTFoMVYzSDRaTTkgMmgzdjFoLTF2MTBoMXYxSDl2LTFoMVYzSDlaIiBmaWxsPSIjMDAwIi8+PC9zdmc+")
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' shape-rendering='crispEdges'%3E%3Cpath d='M5 2h6v1H9v10h2v1H5v-1h2V3H5Z' fill='%23000'/%3E%3C/svg%3E")
       8 8,
     text;
 }
@@ -143,6 +149,7 @@
   --color-w95-shadow: var(--w95-shadow);
   --color-w95-light: var(--w95-light);
   --color-w95-info: var(--w95-info-bg);
+  --color-w95-muted-text: var(--w95-muted-text);
   --font-display: var(--font-ui);
   --font-sans: var(--font-ui);
   --font-mono: var(--font-mono-ui);
@@ -245,6 +252,23 @@
   border-color: var(--w95-shadow) var(--w95-face-light) var(--w95-face-light) var(--w95-shadow);
 }
 
+/*
+ * Window frame. Identical to bevel-out plus a hairline outer ring.
+ *
+ * On the old teal desktop the white top-left bevel defined the window edge by
+ * itself. Against a white backdrop that edge disappears, so the ring is what
+ * separates chrome from desktop now. Without it, windows bleed into the page.
+ */
+@utility window-frame {
+  border: 2px solid;
+  border-color: var(--w95-light) var(--w95-darkest) var(--w95-darkest) var(--w95-light);
+  box-shadow:
+    inset 1px 1px 0 0 var(--w95-face-light),
+    inset -1px -1px 0 0 var(--w95-shadow),
+    0 0 0 1px var(--w95-shadow);
+  background-color: var(--w95-face);
+}
+
 /* The pressed state: bevels invert and content shifts down-right one pixel. */
 @utility bevel-pressed {
   border-color: var(--w95-darkest) var(--w95-light) var(--w95-light) var(--w95-darkest);
@@ -259,15 +283,20 @@
   background-color: var(--w95-desktop);
 }
 
+/*
+ * The classic gradient ran navy -> #1084d0, but white on that light end is only
+ * ~3.6:1 — under AA for 11px text, and long titles reach it. Stopping at
+ * #10559c keeps the gradient readable (~6.5:1) across the whole bar.
+ */
 @utility title-bar {
-  background: linear-gradient(90deg, var(--w95-title) 0%, #1084d0 100%);
+  background: linear-gradient(90deg, var(--w95-title) 0%, #10559c 100%);
   color: #ffffff;
   font-weight: 700;
 }
 
 @utility title-bar-inactive {
-  background: linear-gradient(90deg, var(--w95-title-inactive) 0%, #b5b5b5 100%);
-  color: #dfdfdf;
+  background: linear-gradient(90deg, var(--w95-title-inactive) 0%, #9a9a9a 100%);
+  color: #ffffff;
   font-weight: 700;
 }
 

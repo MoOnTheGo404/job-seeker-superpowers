@@ -50,9 +50,9 @@ function DesktopIcon({ icon: Icon, label, to }: { icon: typeof Radar; label: str
   return (
     <Link to={to} className="group flex w-[76px] flex-col items-center gap-1 p-1 text-center">
       <span className="grid size-8 place-items-center">
-        <Icon className="size-7 text-white drop-shadow-[1px_1px_0_rgba(0,0,0,0.6)]" />
+        <Icon className="size-7 text-black" />
       </span>
-      <span className="px-1 text-[11px] text-white group-hover:bg-w95-title group-focus-visible:bg-w95-title">
+      <span className="px-1 text-[11px] text-black group-hover:bg-w95-title group-hover:text-white group-focus-visible:bg-w95-title group-focus-visible:text-white">
         {label}
       </span>
     </Link>

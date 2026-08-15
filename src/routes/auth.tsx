@@ -109,7 +109,7 @@ function AuthPage() {
       aria-busy={busy}
     >
       <div className="w-full max-w-[420px]">
-        <Link to="/" className="mb-4 flex items-center justify-center gap-2 text-white">
+        <Link to="/" className="mb-4 flex items-center justify-center gap-2 text-black">
           <Radar className="size-5" />
           <span className="text-[13px] font-bold tracking-tight">ReachPoint</span>
         </Link>
