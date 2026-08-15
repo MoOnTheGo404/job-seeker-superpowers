@@ -39,9 +39,17 @@ export async function askAI(
 
   if (!userText) throw new Error("askAI requires at least one user message.");
 
+  /*
+   * `||`, not `??`. A declared-but-blank `GEMINI_MODEL=` in .env is an empty
+   * string, which `??` happily passes through — the API then rejects the
+   * request with "model is required and must be a string". Trim and treat
+   * blank as unset so an empty line in .env means "use the default".
+   */
+  const model = options.model?.trim() || process.env["GEMINI_MODEL"]?.trim() || DEFAULT_MODEL;
+
   try {
     const response = await getClient().models.generateContent({
-      model: options.model ?? process.env["GEMINI_MODEL"] ?? DEFAULT_MODEL,
+      model,
       contents: userText,
       config: {
         maxOutputTokens: 4096,
