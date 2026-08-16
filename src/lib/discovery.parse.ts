@@ -49,7 +49,64 @@ export const JOB_BOARDS = [
   "personio.de",
   "icims.com",
   "taleo.net",
+  // Handshake is the university careers portal. Its postings sit behind a
+  // student login, so we can never read one — but it still has to be listed
+  // here, because the company_domain fallback in analyzeJob would otherwise
+  // decide the employer *is* Handshake and go hunting for its recruiters.
+  "joinhandshake.com",
+  "simplify.jobs",
+  "builtin.com",
+  "simplyhired.com",
+  "careerbuilder.com",
+  "talent.com",
 ];
+
+/*
+ * Paths a site redirects to when it wants you logged in. Matched against the
+ * *final* URL after redirects, which is the strongest signal available: a real
+ * posting stays on its own URL, an auth-walled one lands somewhere like
+ * /access or /users/sign_in.
+ */
+const AUTH_PATH =
+  /^\/(access|login|log-in|signin|sign-in|sign_in|auth|authenticate|sso|session|sessions\/new|users\/sign_in|account\/login|checkpoint)\b/i;
+
+/*
+ * Titles that announce a login screen. Deliberately matched against <title>
+ * and not body text — plenty of genuine job pages have a "Sign in" link in the
+ * nav, but almost none are *titled* one.
+ */
+const AUTH_TITLE =
+  /\b(log ?in|sign ?in|sign ?up|authentication required|access denied|forbidden)\b/i;
+
+/** Words that only show up on a real posting, used to veto a false positive. */
+const JOB_SIGNAL =
+  /\b(responsibilities|qualifications|requirements|what you'?ll do|about the role|apply now|job description|benefits|salary|compensation)\b/i;
+
+/**
+ * Decide whether a fetched page is a login wall rather than the job posting.
+ *
+ * This matters because an auth wall answers with HTTP 200 and valid HTML, so
+ * every ordinary error check passes and the login screen gets handed to the
+ * model as if it were the posting. The model then dutifully extracts the
+ * *portal's* name as the employer. Silent, confident, and wrong — worse than
+ * a plain failure, which is why it is detected explicitly.
+ */
+export function looksLikeAuthWall(finalUrl: string, title: string, text: string): boolean {
+  // A page that actually describes a job is not a login wall, whatever its
+  // title says. Checked first so it can override the weaker signals below.
+  if (JOB_SIGNAL.test(text)) return false;
+
+  try {
+    if (AUTH_PATH.test(new URL(finalUrl).pathname)) return true;
+  } catch {
+    // Unparseable URL — fall through to the content checks.
+  }
+
+  if (AUTH_TITLE.test(title)) return true;
+
+  // A very short page that talks about logging in and nothing else.
+  return text.length < 600 && /\b(log ?in|sign ?in|create an account)\b/i.test(text);
+}
 
 export const RECRUIT_TITLES = [
   "recruiter",

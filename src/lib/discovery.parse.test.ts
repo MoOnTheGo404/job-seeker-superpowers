@@ -6,6 +6,7 @@ import {
   isJobBoard,
   isRecruiterTitle,
   isSeniorTitle,
+  looksLikeAuthWall,
   matchesDepartment,
   matchesPerson,
   normalizeDomain,
@@ -26,6 +27,48 @@ describe("isJobBoard", () => {
     // "notlever.co" must not be caught by the "lever.co" entry.
     expect(isJobBoard("notlever.co")).toBe(false);
     expect(isJobBoard("stripe.com")).toBe(false);
+  });
+
+  it("treats Handshake as a board on every subdomain a school might use", () => {
+    // Missing this made analyzeJob fall back to joinhandshake.com as the
+    // employer's domain and search for recruiters at Handshake itself.
+    expect(isJobBoard("joinhandshake.com")).toBe(true);
+    expect(isJobBoard("app.joinhandshake.com")).toBe(true);
+    expect(isJobBoard("mycollege.joinhandshake.com")).toBe(true);
+  });
+});
+
+describe("looksLikeAuthWall", () => {
+  it("catches a redirect to a login path", () => {
+    // Real behaviour: Handshake answers /jobs/123 with a 200 and quietly
+    // lands you on /access.
+    expect(looksLikeAuthWall("https://app.joinhandshake.com/access", "", "")).toBe(true);
+    expect(looksLikeAuthWall("https://x.com/users/sign_in", "", "")).toBe(true);
+  });
+
+  it("catches a login title even without a telltale path", () => {
+    expect(looksLikeAuthWall("https://x.com/jobs/1", "Log in or sign up | Handshake", "")).toBe(
+      true,
+    );
+  });
+
+  it("catches a short page that only talks about logging in", () => {
+    expect(looksLikeAuthWall("https://x.com/jobs/1", "", "Please log in to continue.")).toBe(true);
+  });
+
+  it("leaves a real posting alone even when it has a sign-in link", () => {
+    const posting =
+      "Sign in. Senior Backend Engineer at Acme. Responsibilities: build APIs. " +
+      "Qualifications: 5 years experience. Benefits include health cover.";
+    expect(looksLikeAuthWall("https://acme.com/jobs/1", "Sign in | Acme", posting)).toBe(false);
+  });
+
+  it("prefers job content over a login-shaped URL", () => {
+    // A posting that genuinely lives under /session should still be read.
+    const posting = "About the role: you will own the data platform. Requirements: SQL.";
+    expect(looksLikeAuthWall("https://acme.com/session/jobs/1", "Data Engineer", posting)).toBe(
+      false,
+    );
   });
 });
 

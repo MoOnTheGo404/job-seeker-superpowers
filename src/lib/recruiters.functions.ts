@@ -30,7 +30,22 @@ export const analyzeJob = createServerFn({ method: "POST" })
     if (data.jobUrl) {
       const { fetchPublicPage } = await import("./fetchPage.server");
       const fetched = await fetchPublicPage(data.jobUrl);
-      if (fetched) pageText = `${pageText}\n\n${fetched}`.trim();
+
+      if (fetched.ok) {
+        pageText = `${pageText}\n\n${fetched.text}`.trim();
+      } else if (fetched.reason === "auth_wall" && !pageText) {
+        /*
+         * Nothing to analyse and no way to get it. Say so instead of sending
+         * the login page to the model, which would confidently report the
+         * portal as the employer. Handshake is the common case — its postings
+         * require a student account, so no amount of retrying will help and
+         * pasting the text is the only route.
+         */
+        throw new Error(
+          "This posting is behind a login, so it can't be read from the link. " +
+            "Copy the job description text and paste it into the box below instead.",
+        );
+      }
     }
 
     const raw = await askAI(
