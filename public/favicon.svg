@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" shape-rendering="crispEdges">
+  <!-- Win95 beveled tile: light source top-left, so highlight above, shadow below. -->
+  <rect width="16" height="16" fill="#c0c0c0"/>
+  <path d="M0 0h16v1H0zM0 0h1v16H0z" fill="#ffffff"/>
+  <path d="M15 1v15h1V0h-1zM1 15h15v1H0v-1h1z" fill="#808080"/>
+
+  <!-- Title-bar navy, the one colour the whole theme is built around. -->
+  <rect x="2" y="2" width="12" height="12" fill="#000080"/>
+
+  <!-- Blocky "R", drawn on the pixel grid so it stays crisp at 16px. -->
+  <g fill="#ffffff">
+    <rect x="4" y="3" width="2" height="10"/>
+    <rect x="4" y="3" width="7" height="2"/>
+    <rect x="9" y="3" width="2" height="6"/>
+    <rect x="4" y="7" width="7" height="2"/>
+    <rect x="7" y="9" width="2" height="2"/>
+    <rect x="9" y="11" width="2" height="2"/>
+  </g>
+</svg>
