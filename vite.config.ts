@@ -26,7 +26,24 @@ export default defineConfig({
      * Note the free tier allows 50 outbound subrequests per invocation — the
      * discovery fan-out in discovery.server.ts is sized to stay under it.
      */
-    nitro({ preset: process.env["NITRO_PRESET"] ?? "cloudflare_module" }),
+    nitro({
+      preset: process.env["NITRO_PRESET"] ?? "cloudflare_module",
+      cloudflare: {
+        wrangler: {
+          /*
+           * Without this, `wrangler deploy` treats the generated config as the
+           * whole truth and DELETES every environment variable set in the
+           * Cloudflare dashboard — nitro emits no `vars` block, so the deploy
+           * reads as "remove them all". It silently wiped the Supabase config
+           * on the first successful deploy.
+           *
+           * keep_vars leaves dashboard-managed vars alone. Secrets were never
+           * affected; wrangler manages those separately.
+           */
+          keep_vars: true,
+        },
+      },
+    }),
     viteReact(),
   ],
   resolve: {
