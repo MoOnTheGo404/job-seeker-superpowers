@@ -80,22 +80,15 @@ async function domainResponds(host: string, timeoutMs = 7000): Promise<boolean> 
   }
 }
 
-const CONTACT_PATHS = [
-  "",
-  "/contact",
-  "/contact-us",
-  "/contacts",
-  "/about",
-  "/about-us",
-  "/company",
-  "/careers",
-  "/careers/contact",
-  "/jobs",
-  "/team",
-  "/people",
-  "/impressum",
-  "/legal",
-];
+/*
+ * Six paths, not fourteen.
+ *
+ * Every entry here is one outbound request on a serverless host, and the free
+ * Cloudflare Workers tier allows 50 per invocation. These six are where
+ * recruiting addresses actually live; /impressum, /legal, /people and friends
+ * almost never carried one and cost the same as the ones that do.
+ */
+const CONTACT_PATHS = ["", "/contact", "/contact-us", "/about", "/careers", "/jobs"];
 
 /** Crawl a company's own public pages for published email addresses. */
 export async function crawlCompanyEmails(domain: string): Promise<FoundEmail[]> {
@@ -321,7 +314,10 @@ export async function searchPersonEmail(
   // is recovered by matchesPerson, which checks the address against both the
   // person's name and the company domain before it is ever surfaced.
   const query = domain ? `${name} email ${domain}` : `${name} ${company} email`;
-  const results = (await webSearch(query, cache)).slice(0, 4);
+  // Two candidates, not four: the snippet scan above already catches the
+  // easy hits, and each fetch here is an outbound request against the
+  // per-invocation budget.
+  const results = (await webSearch(query, cache)).slice(0, 2);
 
   // Snippets are already in hand — scan them all before paying for any fetch.
   for (const r of results) {

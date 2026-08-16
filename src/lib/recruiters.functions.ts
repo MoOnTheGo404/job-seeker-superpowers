@@ -128,7 +128,9 @@ export const discoverContacts = createServerFn({ method: "POST" })
     // Look these up concurrently. Serially, six profiles meant six search calls
     // plus up to 24 page fetches back to back, which blew the request timeout
     // long before the handler could return.
-    const topProfiles = profiles.slice(0, 6);
+    // Four, not six: each profile costs a search plus page fetches, and the
+    // per-invocation request budget on serverless hosts is finite.
+    const topProfiles = profiles.slice(0, 4);
     const personEmails = await Promise.all(
       topProfiles.map((profile) =>
         // One profile failing to resolve shouldn't sink the whole discovery run.

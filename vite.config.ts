@@ -14,7 +14,19 @@ export default defineConfig({
     // Redirect TanStack Start's bundled server entry to src/server.ts, our SSR
     // error wrapper. nitro builds from this.
     tanstackStart({ server: { entry: "server" } }),
-    nitro(),
+    /*
+     * Cloudflare Pages by default; override with NITRO_PRESET for anywhere else
+     * (`node-server` for a plain container, `vercel` for Vercel).
+     *
+     * Cloudflare suits this app specifically: it bills CPU time rather than
+     * wall time, and discovery is almost entirely spent waiting on network, so
+     * a run that takes half a minute costs almost no billable compute. Hosts
+     * that cap wall-clock function duration are a much worse fit.
+     *
+     * Note the free tier allows 50 outbound subrequests per invocation — the
+     * discovery fan-out in discovery.server.ts is sized to stay under it.
+     */
+    nitro({ preset: process.env["NITRO_PRESET"] ?? "cloudflare_pages" }),
     viteReact(),
   ],
   resolve: {

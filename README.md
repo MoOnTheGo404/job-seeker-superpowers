@@ -87,6 +87,26 @@ to scraping search engines that throttle heavily, and usually returns nothing.
 | `npm run lint`      | Lint with ESLint                  |
 | `npm run format`    | Format with Prettier              |
 
+## Deploying
+
+Built for **Cloudflare Pages** (`cloudflare_pages` nitro preset). Cloudflare fits this
+workload specifically: it bills CPU time rather than wall time, and discovery is almost
+entirely spent waiting on the network, so a run lasting half a minute costs almost no
+billable compute. Hosts that cap wall-clock function duration are a worse fit.
+
+Connect the repo in the Cloudflare dashboard with:
+
+- **Build command:** `npm run build`
+- **Output directory:** `dist`
+
+Then set the five environment variables from `.env.example` (all six Supabase lines, plus
+`GEMINI_API_KEY` and `SERPER_API_KEY`) in the Pages project settings.
+
+Override the target with `NITRO_PRESET` — `node-server` for a container, `vercel` for Vercel.
+
+The free Workers tier allows **50 outbound subrequests per invocation**; the discovery
+fan-out is sized to stay under it (~40 worst case, far fewer once the search cache is warm).
+
 ## Layout
 
 ```
