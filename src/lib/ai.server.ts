@@ -1,4 +1,5 @@
 import { GoogleGenAI, ApiError } from "@google/genai";
+import { runtimeEnv } from "./env";
 
 /*
  * Gemini's free tier covers both jobs this app does (parsing a posting and
@@ -32,7 +33,7 @@ function humanMessage(raw: string): string {
 let client: GoogleGenAI | undefined;
 
 function getClient(): GoogleGenAI {
-  const apiKey = process.env["GEMINI_API_KEY"];
+  const apiKey = runtimeEnv("GEMINI_API_KEY");
   if (!apiKey) {
     throw new Error("AI is not configured — set GEMINI_API_KEY in your environment.");
   }
@@ -63,7 +64,7 @@ export async function askAI(
    * request with "model is required and must be a string". Trim and treat
    * blank as unset so an empty line in .env means "use the default".
    */
-  const model = options.model?.trim() || process.env["GEMINI_MODEL"]?.trim() || DEFAULT_MODEL;
+  const model = options.model?.trim() || runtimeEnv("GEMINI_MODEL")?.trim() || DEFAULT_MODEL;
 
   let lastError: unknown;
 

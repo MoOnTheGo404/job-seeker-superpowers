@@ -6,6 +6,7 @@
  * - Every email we surface must come with the public URL it was found on.
  */
 
+import { runtimeEnv } from "./env";
 import {
   classifyEmail,
   extractEmails,
@@ -171,14 +172,14 @@ function parseResults(html: string): { title: string; url: string; snippet: stri
 
 /** True when a real search API is configured, so we can skip scraper throttling. */
 export function hasSearchApi(): boolean {
-  return Boolean(process.env["SERPER_API_KEY"]);
+  return Boolean(runtimeEnv("SERPER_API_KEY"));
 }
 
 /** Optional: a real search API key gives far better person-level results. */
 async function serperSearch(
   query: string,
 ): Promise<{ title: string; url: string; snippet: string }[] | null> {
-  const key = process.env["SERPER_API_KEY"];
+  const key = runtimeEnv("SERPER_API_KEY");
   if (!key) return null;
   try {
     const res = await fetch("https://google.serper.dev/search", {
