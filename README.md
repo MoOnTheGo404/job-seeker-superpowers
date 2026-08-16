@@ -89,18 +89,23 @@ to scraping search engines that throttle heavily, and usually returns nothing.
 
 ## Deploying
 
-Built for **Cloudflare Pages** (`cloudflare_pages` nitro preset). Cloudflare fits this
+Built for **Cloudflare Workers** (`cloudflare_module` nitro preset). Cloudflare fits this
 workload specifically: it bills CPU time rather than wall time, and discovery is almost
 entirely spent waiting on the network, so a run lasting half a minute costs almost no
 billable compute. Hosts that cap wall-clock function duration are a worse fit.
 
-Connect the repo in the Cloudflare dashboard with:
+Connect the repo under **Workers & Pages** with:
 
 - **Build command:** `npm run build`
-- **Output directory:** `dist`
+- **Deploy command:** `npx wrangler deploy`
 
-Then set the five environment variables from `.env.example` (all six Supabase lines, plus
-`GEMINI_API_KEY` and `SERPER_API_KEY`) in the Pages project settings.
+Environment variables go in **two** places, and both are required:
+
+- **Build variables** — the three `VITE_`-prefixed values. Vite compiles these into the client
+  bundle at build time, so they cannot be added afterwards; changing them needs a rebuild.
+- **Variables and secrets** (runtime) — the unprefixed `SUPABASE_*` plus `GEMINI_API_KEY` and
+  `SERPER_API_KEY`. Mark the last two as encrypted secrets; they must never be `VITE_`-prefixed
+  or they would ship to the browser.
 
 Override the target with `NITRO_PRESET` — `node-server` for a container, `vercel` for Vercel.
 
