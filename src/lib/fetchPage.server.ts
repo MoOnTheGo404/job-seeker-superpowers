@@ -1,4 +1,4 @@
-import { looksLikeAuthWall } from "./discovery.parse";
+import { looksLikeAuthWall, looksUnreadable } from "./discovery.parse";
 
 const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
@@ -7,6 +7,8 @@ export type PageFetch =
   | { ok: true; text: string }
   /** The URL resolved to a login screen — the posting itself is unreadable. */
   | { ok: false; reason: "auth_wall" }
+  /** Fetched fine and contained no readable text, e.g. a client-rendered shell. */
+  | { ok: false; reason: "unreadable" }
   /** Network error, timeout, non-HTML, or an error status. */
   | { ok: false; reason: "unavailable" };
 
@@ -62,6 +64,12 @@ export async function fetchPublicPage(url: string, timeoutMs = 10_000): Promise<
     if (looksLikeAuthWall(res.url || parsed.toString(), title, text)) {
       return { ok: false, reason: "auth_wall" };
     }
+
+    /*
+     * Checked after the auth wall, because a login screen is the more specific
+     * diagnosis and both would otherwise match a near-empty page.
+     */
+    if (looksUnreadable(text)) return { ok: false, reason: "unreadable" };
 
     return { ok: true, text: text.slice(0, 20_000) };
   } catch {

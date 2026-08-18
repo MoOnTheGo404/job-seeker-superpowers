@@ -23,6 +23,7 @@ import {
   isRecruiterTitle,
   isSeniorTitle,
   looksLikeAuthWall,
+  looksUnreadable,
   matchesDepartment,
   matchesPerson,
   normalizeDomain,
@@ -929,5 +930,44 @@ describe("the Apple run: Software Engineer, IS&T", () => {
     for (const t of [wanted, hardwareDirector, vpSoftware]) {
       expect(score(t)).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("looksUnreadable", () => {
+  it("rejects the empty shell a client-rendered board returns", () => {
+    // Measured: a real Workday posting fetched HTTP 200 with 0 characters of
+    // text. Every other check passed and the model was handed nothing.
+    expect(looksUnreadable("")).toBe(true);
+    expect(looksUnreadable("   \n\t  ")).toBe(true);
+    expect(looksUnreadable(null)).toBe(true);
+    expect(looksUnreadable(undefined)).toBe(true);
+  });
+
+  it("rejects a page short enough to be only chrome", () => {
+    expect(looksUnreadable("Home About Careers Contact Privacy © 2026")).toBe(true);
+  });
+
+  it("rejects a page that admits it needs a browser", () => {
+    const shell = "Please enable JavaScript to view this page. " + "Loading. ".repeat(40);
+    expect(looksUnreadable(shell)).toBe(true);
+  });
+
+  it("accepts a real posting", () => {
+    const posting =
+      "Construction Coordinator. Responsibilities: coordinate field activities. " +
+      "Qualifications: 5 years experience. Benefits include health cover.";
+    expect(looksUnreadable(posting)).toBe(false);
+  });
+
+  it("accepts a terse posting on its job content alone", () => {
+    // Under the length floor, but unmistakably a posting. Content wins.
+    const terse = "Responsibilities: build APIs. Qualifications: 3 years Go.";
+    expect(terse.length).toBeLessThan(200);
+    expect(looksUnreadable(terse)).toBe(false);
+  });
+
+  it("accepts long prose that is not obviously a posting", () => {
+    // No job keywords, but plenty of text — not our call to reject.
+    expect(looksUnreadable("We build things. ".repeat(40))).toBe(false);
   });
 });

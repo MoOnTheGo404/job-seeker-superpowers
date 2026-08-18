@@ -56,6 +56,18 @@ export const analyzeJob = createServerFn({ method: "POST" })
 
       if (fetched.ok) {
         pageText = `${pageText}\n\n${fetched.text}`.trim();
+      } else if (fetched.reason === "unreadable" && !pageText) {
+        /*
+         * Fetched successfully and contained nothing. Workday and similar
+         * boards build the posting in the browser, so the server sees an empty
+         * shell. Saying so beats handing the model no content and printing
+         * whatever it produces from it.
+         */
+        throw new Error(
+          "This posting didn't return any readable text — some job boards build the page " +
+            "in the browser, so there's nothing to read from the link. Copy the job " +
+            "description and paste it into the box below instead.",
+        );
       } else if (fetched.reason === "auth_wall" && !pageText) {
         /*
          * Nothing to analyse and no way to get it. Say so instead of sending

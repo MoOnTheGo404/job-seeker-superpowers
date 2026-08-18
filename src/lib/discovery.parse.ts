@@ -114,6 +114,41 @@ export function looksLikeAuthWall(finalUrl: string, title: string, text: string)
   return text.length < 600 && /\b(log ?in|sign ?in|create an account)\b/i.test(text);
 }
 
+/**
+ * Shortest page that could plausibly be a job posting, in characters.
+ *
+ * Measured against nine real postings: the smallest was 2,816 characters and
+ * the median was over 7,000. A floor of 200 sits far below anything genuine
+ * while still catching a shell.
+ */
+const MIN_READABLE_CHARS = 200;
+
+/** Pages that render entirely in the browser and say so in the HTML. */
+const NEEDS_JS =
+  /enable javascript|requires javascript|javascript is (?:dis|not en)abled|please enable/i;
+
+/**
+ * Did we fetch a page, or just its wrapper?
+ *
+ * Workday renders postings client-side, so fetching one returns HTTP 200 with
+ * valid HTML and **zero characters of text**. Every error check passes and the
+ * model is handed nothing, which is the auth-wall failure through a different
+ * door: an empty success is not a success, and a model given no content will
+ * describe something anyway.
+ *
+ * Job-content words veto the check, so a terse-but-real posting is still read.
+ */
+export function looksUnreadable(text: string | null | undefined): boolean {
+  const t = (text ?? "").trim();
+  if (!t) return true;
+
+  // Real posting language settles it, whatever the length.
+  if (JOB_SIGNAL.test(t)) return false;
+
+  if (t.length < MIN_READABLE_CHARS) return true;
+  return NEEDS_JS.test(t);
+}
+
 export const RECRUIT_TITLES = [
   "recruiter",
   "technical recruiter",
