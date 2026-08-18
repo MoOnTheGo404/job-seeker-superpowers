@@ -10,6 +10,27 @@
 
 ## Rejected and why
 
+### Eval fixture gaps
+
+Two candidates failed verification while assembling the discovery eval set, and
+both are gaps to fill rather than blockers. Recorded so the next fixture pass
+starts from what is already known.
+
+- **interface.ai** — the Greenhouse posting found by search
+  (`job-boards.greenhouse.io/interfaceai/jobs/4684101006`) returned
+  `unavailable`: filled or closed between being indexed and being fetched. A
+  live replacement is needed to cover this company, which is in the real
+  pipeline and therefore has ground truth attached.
+- **Encore Global** — their board exposes only location and category listing
+  pages (`/en/employment/...-audio-visual-jobs/...`), never an individual
+  requisition URL, at least not through search. Getting one probably means
+  browsing the board directly rather than searching for it.
+
+Also still missing from the set: a non-US posting, an explicitly multi-location
+posting, and wider industry spread beyond tech, EPC, medtech and consulting.
+Deferred deliberately — manual labelling is the bottleneck, and nine fixtures is
+what can be labelled properly in one sitting.
+
 <!-- Ideas deliberately turned down, each with the reasoning, so they don't get re-litigated later. -->
 
 ### Recruiter emails from LinkedIn post bodies
