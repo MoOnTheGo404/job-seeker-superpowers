@@ -7,6 +7,7 @@ import {
   countryFromLinkedInUrl,
   countryMismatchLabel,
   countryRankDelta,
+  departmentFit,
   EMPLOYER_UNCONFIRMED,
   classifyEmail,
   emailAppearsInSource,
@@ -288,10 +289,31 @@ describe("scoreReferralCandidate", () => {
     expect(onTeam).toBeGreaterThan(elsewhere);
   });
 
-  it("ranks more senior titles higher within the same team", () => {
+  it("ranks a senior IC above a director, reversing the old assumption", () => {
+    // This test previously asserted the opposite. Seniority rank and referral
+    // usefulness are different curves: a director is further from the team and
+    // less likely to vouch for a stranger than the engineer beside them.
     const director = scoreReferralCandidate("Director of Engineering", "Engineering");
     const senior = scoreReferralCandidate("Senior Software Engineer", "Engineering");
-    expect(director).toBeGreaterThan(senior);
+    expect(senior).toBeGreaterThan(director);
+  });
+
+  it("ranks executives low without dropping them", () => {
+    const vp = scoreReferralCandidate("VP of Software Engineering", "Engineering");
+    const chief = scoreReferralCandidate("Chief Technology Officer", "Engineering");
+    const principal = scoreReferralCandidate("Principal Software Engineer", "Engineering");
+    expect(principal).toBeGreaterThan(vp);
+    expect(vp).toBeGreaterThan(chief);
+    // Low, not gone. They are still real people on the team.
+    expect(chief).toBeGreaterThan(0);
+  });
+
+  it("peaks around senior IC and line manager", () => {
+    const dept = "Engineering";
+    const peak = scoreReferralCandidate("Principal Software Engineer", dept);
+    for (const lower of ["Head of Engineering", "Director of Engineering", "VP of Engineering"]) {
+      expect(scoreReferralCandidate(lower, dept)).toBeLessThan(peak);
+    }
   });
 
   it("returns 0 for people who should never appear as referrers", () => {
@@ -851,5 +873,61 @@ describe("countryMismatchLabel", () => {
     expect(countryMismatchLabel("us", "us")).toBeNull();
     expect(countryMismatchLabel(null, "us")).toBeNull();
     expect(countryMismatchLabel("in", null)).toBeNull();
+  });
+});
+
+describe("departmentFit", () => {
+  it("separates a wrong team from an unreadable one", () => {
+    // The old boolean collapsed these, so a real mismatch only lost its bonus.
+    expect(departmentFit("Senior Account Executive", "Engineering")).toBe("mismatch");
+    expect(departmentFit("Senior Manager", "Engineering")).toBe("unknown");
+    expect(departmentFit("Senior Software Engineer", "Engineering")).toBe("match");
+  });
+
+  it("tells hardware from software inside one engineering department", () => {
+    // Both bucket as "engineering", which is why a hardware director used to
+    // score as an on-team match on a software requisition.
+    const role = "Software Engineer, IS&T";
+    expect(departmentFit("Hardware Engineering Director", "Engineering", role)).toBe("mismatch");
+    expect(departmentFit("Senior Software Engineer", "Engineering", role)).toBe("match");
+  });
+
+  it("stays neutral when the job says nothing", () => {
+    expect(departmentFit("Senior Software Engineer", null)).toBe("unknown");
+    expect(departmentFit("", "Engineering")).toBe("unknown");
+  });
+});
+
+describe("the Apple run: Software Engineer, IS&T", () => {
+  // 8 referrers came back, 4 of them hardware directors and 1 a VP. These are
+  // the real names and titles from that run.
+  const DEPT = "Engineering";
+  const ROLE = "Software Engineer, IS&T";
+  const score = (title: string) => scoreReferralCandidate(title, DEPT, ROLE);
+
+  const wanted = "Senior Software Engineer";
+  const hardwareDirector = "Steve McClure - Hardware Director";
+  const vpSoftware = "Jon Andrews - VP, Software Engineering";
+
+  it("puts the senior software engineer above the hardware director", () => {
+    expect(score(wanted)).toBeGreaterThan(score(hardwareDirector));
+  });
+
+  it("puts the senior software engineer above the VP", () => {
+    expect(score(wanted)).toBeGreaterThan(score(vpSoftware));
+  });
+
+  it("orders the whole shortlist the way a person would", () => {
+    const ranked = [hardwareDirector, vpSoftware, wanted]
+      .map((t) => ({ t, s: score(t) }))
+      .sort((a, b) => b.s - a.s)
+      .map((r) => r.t);
+    expect(ranked[0]).toBe(wanted);
+  });
+
+  it("keeps everyone on the list — nobody is filtered out", () => {
+    for (const t of [wanted, hardwareDirector, vpSoftware]) {
+      expect(score(t)).toBeGreaterThan(0);
+    }
   });
 });

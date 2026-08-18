@@ -162,9 +162,10 @@ const RECRUITING_LOCAL_PARTS = [
 ];
 
 /**
- * Titles senior enough that a referral from them carries weight. Ordered
- * loosely by rank; `scoreReferralCandidate` uses position, so keep the most
- * senior terms last.
+ * Titles senior enough that a referral is worth asking for.
+ *
+ * Membership only — the *weight* lives in SENIORITY_WEIGHT, because rank order
+ * and referral usefulness are not the same curve.
  */
 export const SENIORITY_TERMS = [
   "senior",
@@ -181,6 +182,88 @@ export const SENIORITY_TERMS = [
   "vice president",
   "chief",
 ];
+
+/**
+ * How useful a referral from this level actually is.
+ *
+ * Not a rank. Seniority ordering rises monotonically to the top of the org
+ * chart; referral usefulness does not. It peaks around senior IC and line
+ * manager — close enough to the team to vouch credibly, senior enough for the
+ * vouch to carry — and falls away above that. A VP of Software Engineering
+ * will not refer a stranger, and asking costs the applicant the attempt.
+ *
+ * Executives are weighted low rather than excluded. They are still real people
+ * on the team and occasionally the right ask; they simply should not outrank
+ * the engineer who would actually reply.
+ */
+const SENIORITY_WEIGHT: Record<string, number> = {
+  senior: 6,
+  "sr.": 6,
+  lead: 7,
+  staff: 7,
+  manager: 7,
+  principal: 8,
+  architect: 7,
+  distinguished: 6,
+  "head of": 5,
+  director: 4,
+  vp: 2,
+  "vice president": 2,
+  chief: 1,
+};
+
+/**
+ * Disciplines that are genuinely different jobs inside one department.
+ *
+ * DEPARTMENT_HINTS buckets both silicon and web work under "engineering",
+ * which is why a Hardware Engineering Director scored as a department *match*
+ * on a software requisition and outranked the software engineer who would have
+ * answered. This axis is what makes that a mismatch.
+ *
+ * Checked before the coarse buckets, since the specific reading should win.
+ */
+const DISCIPLINES: Record<string, string[]> = {
+  hardware: [
+    "hardware",
+    "silicon",
+    "asic",
+    "rtl",
+    "analog",
+    "pcb",
+    "electrical",
+    "mechanical",
+    "thermal",
+    "semiconductor",
+    "chip design",
+    "firmware",
+  ],
+  software: [
+    "software",
+    "backend",
+    "back-end",
+    "frontend",
+    "front-end",
+    "full stack",
+    "fullstack",
+    "web",
+    "mobile",
+    "ios",
+    "android",
+    "cloud",
+    "devops",
+    "sre",
+    "application",
+  ],
+};
+
+function disciplineOf(text: string): string | null {
+  const t = normalize(text);
+  if (!t) return null;
+  for (const [name, hints] of Object.entries(DISCIPLINES)) {
+    if (hints.some((h) => t.includes(h))) return name;
+  }
+  return null;
+}
 
 /** Function keywords, so an engineering job doesn't surface the sales org. */
 const DEPARTMENT_HINTS: Record<string, string[]> = {
@@ -237,15 +320,55 @@ export function isRecruiterTitle(title: string): boolean {
  * Unknown or unmatched departments return true rather than false — a weak
  * signal should widen the pool, not empty it.
  */
-export function matchesDepartment(title: string, department: string | null): boolean {
-  if (!department) return true;
+export type DepartmentFit = "match" | "mismatch" | "unknown";
+
+/**
+ * Three-valued, because "wrong team" and "cannot tell" deserve different
+ * answers.
+ *
+ * The old boolean collapsed them: an unrecognised title and a title from
+ * another department both returned false, so a genuine mismatch was never
+ * penalised beyond losing its bonus. Unknown stays neutral — most headlines
+ * name no function at all, and punishing silence would rank the majority below
+ * a signal they never carried.
+ *
+ * roleTitle is consulted alongside department because analyzeJob reports both
+ * a software and a hardware requisition as "Engineering"; only the role text
+ * says which.
+ */
+export function departmentFit(
+  title: string,
+  department: string | null,
+  roleTitle?: string | null,
+): DepartmentFit {
   const t = normalize(title);
+  if (!t) return "unknown";
+
+  // Discipline first: the specific reading beats the coarse bucket.
+  const jobDiscipline = disciplineOf(`${department ?? ""} ${roleTitle ?? ""}`);
+  const theirDiscipline = disciplineOf(t);
+  if (jobDiscipline && theirDiscipline) {
+    return jobDiscipline === theirDiscipline ? "match" : "mismatch";
+  }
+
+  if (!department) return "unknown";
   const d = normalize(department);
   const bucket = Object.entries(DEPARTMENT_HINTS).find(
     ([name, hints]) => d.includes(name) || hints.some((h) => d.includes(h)),
   );
-  if (!bucket) return true;
-  return bucket[1].some((h) => t.includes(h));
+  if (!bucket) return "unknown";
+  if (bucket[1].some((h) => t.includes(h))) return "match";
+
+  // Names another department outright — a mismatch, not a shrug.
+  const otherBucket = Object.entries(DEPARTMENT_HINTS).find(
+    ([name, hints]) => name !== bucket[0] && hints.some((h) => t.includes(h)),
+  );
+  return otherBucket ? "mismatch" : "unknown";
+}
+
+/** Back-compatible boolean: only an explicit mismatch counts as "no". */
+export function matchesDepartment(title: string, department: string | null): boolean {
+  return departmentFit(title, department) !== "mismatch";
 }
 
 /**
@@ -255,17 +378,30 @@ export function matchesDepartment(title: string, department: string | null): boo
  * department match roughly doubles the score — a senior person on the actual
  * team is worth more than a more senior stranger elsewhere in the company.
  */
-export function scoreReferralCandidate(title: string, department: string | null): number {
+/** Department fit as a multiplier: right team doubles, wrong team halves. */
+const FIT_MULTIPLIER: Record<DepartmentFit, number> = {
+  match: 2,
+  unknown: 1,
+  mismatch: 0.5,
+};
+
+export function scoreReferralCandidate(
+  title: string,
+  department: string | null,
+  roleTitle?: string | null,
+): number {
   const t = normalize(title);
   if (!t || isRecruiterTitle(t)) return 0;
 
-  const rank = SENIORITY_TERMS.reduce(
-    (best, term, i) => (t.includes(term) ? Math.max(best, i + 1) : best),
+  // Highest-weighted matching term wins, so "Senior Director" is read as the
+  // director it is rather than the senior it also says.
+  const weight = SENIORITY_TERMS.reduce(
+    (best, term) => (t.includes(term) ? Math.max(best, SENIORITY_WEIGHT[term] ?? 0) : best),
     0,
   );
-  if (rank === 0) return 0;
+  if (weight === 0) return 0;
 
-  return matchesDepartment(title, department) ? rank * 2 : rank;
+  return weight * FIT_MULTIPLIER[departmentFit(title, department, roleTitle)];
 }
 
 export function stripHtml(html: string): string {

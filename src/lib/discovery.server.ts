@@ -424,7 +424,9 @@ export async function findReferralProfiles(
       if (seen.has(url)) continue;
       const { name, title } = parseLinkedInTitle(r.title);
       if (!name) continue;
-      const score = scoreReferralCandidate(title, department);
+      // roleTitle carries the discipline; department alone reports both a
+      // software and a hardware requisition as "Engineering".
+      const score = scoreReferralCandidate(title, department, roleTitle);
       // 0 means junior, a recruiter, or the wrong function — not a referrer.
       if (score === 0) continue;
       seen.set(url, {
