@@ -22,6 +22,12 @@ export interface FoundProfile {
   title: string;
   linkedinUrl: string;
   sourceUrl: string;
+  /**
+   * Whether the search result actually places this person at the company we
+   * searched for. False means the source never said so — which is different
+   * from saying they do not work there, and is surfaced as such.
+   */
+  employerConfirmed: boolean;
 }
 
 export const JOB_BOARDS = [
@@ -672,6 +678,189 @@ export function linkedInAlumniSearchUrl(company: string, school: string): string
   )}&origin=GLOBAL_SEARCH_HEADER`;
 }
 
+/* ============================================================================
+ * Country hints.
+ *
+ * Measured before building, across 40 LinkedIn profiles from 8 real discovery
+ * queries: 33% carried a ccTLD subdomain, 67% were bare www. The structured
+ * `Location:` field in a snippet appeared on 5%, and both values were cities
+ * rather than countries — turning a city into a country is inference, so that
+ * signal is not used at all.
+ *
+ * What a ccTLD tells you is where a profile was registered. Nothing more. It
+ * does not say where the person lives, and it does not say which requisitions
+ * they work on.
+ * ========================================================================= */
+
+/** Country of a candidate or role, or UNKNOWN when nothing said. */
+export type CountryHint = string | null;
+
+/**
+ * Country implied by a LinkedIn profile URL's subdomain.
+ *
+ * `in.linkedin.com/in/...` returns "in"; a bare `www.linkedin.com` returns
+ * null, which means unknown rather than US. Two thirds of profiles are bare,
+ * and reading those as American would invent a signal for the majority.
+ */
+export function countryFromLinkedInUrl(url: string | null | undefined): CountryHint {
+  if (!url) return null;
+  const m = /^https?:\/\/([a-z]{2})\.linkedin\.com\//i.exec(url.trim());
+  if (!m) return null;
+  const code = m[1]!.toLowerCase();
+  // "www" cannot reach here (three letters), but guard the shape anyway.
+  return /^[a-z]{2}$/.test(code) ? code : null;
+}
+
+/** US state and territory codes, for spotting a bare "Millersport, OH". */
+const US_STATES = new Set([
+  "al",
+  "ak",
+  "az",
+  "ar",
+  "ca",
+  "co",
+  "ct",
+  "de",
+  "fl",
+  "ga",
+  "hi",
+  "id",
+  "il",
+  "in",
+  "ia",
+  "ks",
+  "ky",
+  "la",
+  "me",
+  "md",
+  "ma",
+  "mi",
+  "mn",
+  "ms",
+  "mo",
+  "mt",
+  "ne",
+  "nv",
+  "nh",
+  "nj",
+  "nm",
+  "ny",
+  "nc",
+  "nd",
+  "oh",
+  "ok",
+  "or",
+  "pa",
+  "ri",
+  "sc",
+  "sd",
+  "tn",
+  "tx",
+  "ut",
+  "vt",
+  "va",
+  "wa",
+  "wv",
+  "wi",
+  "wy",
+  "dc",
+  "pr",
+  "gu",
+  "vi",
+  "as",
+  "mp",
+]);
+
+/** Country names and demonyms worth recognising in a posting's location. */
+const COUNTRY_WORDS: Record<string, string> = {
+  // Longer names first: the first match wins, so "united states" must be
+  // tested before the bare "us" that also appears inside it.
+  "united states": "us",
+  usa: "us",
+  "u.s.a.": "us",
+  "u.s.": "us",
+  america: "us",
+  us: "us",
+  "united kingdom": "uk",
+  uk: "uk",
+  england: "uk",
+  scotland: "uk",
+  wales: "uk",
+  britain: "uk",
+  india: "in",
+  canada: "ca",
+  australia: "au",
+  germany: "de",
+  france: "fr",
+  spain: "es",
+  ireland: "ie",
+  netherlands: "nl",
+  poland: "pl",
+  singapore: "sg",
+  japan: "jp",
+  china: "cn",
+  brazil: "br",
+  mexico: "mx",
+  "new zealand": "nz",
+  "south africa": "za",
+  uae: "ae",
+  "united arab emirates": "ae",
+  philippines: "ph",
+  "hong kong": "hk",
+};
+
+/**
+ * Country implied by a job posting's location string.
+ *
+ * Handles the shapes analyzeJob actually produces: "Millersport, OH",
+ * "Remote (US)", "London, United Kingdom". A bare "Remote" with no country
+ * returns null — remote from where is exactly the thing it does not say.
+ */
+export function countryFromJobLocation(location: string | null | undefined): CountryHint {
+  if (!location) return null;
+  const text = location.toLowerCase().replace(/\s+/g, " ").trim();
+  if (!text) return null;
+
+  for (const [word, code] of Object.entries(COUNTRY_WORDS)) {
+    if (new RegExp(`(^|[^a-z])${word.replace(/[.]/g, "\\.")}([^a-z]|$)`).test(text)) return code;
+  }
+
+  // Trailing US state code, with or without a ZIP: "Millersport, OH 43046".
+  const state = /(?:^|,)\s*([a-z]{2})\s*(?:\d{5}(?:-\d{4})?)?\s*$/.exec(text);
+  if (state && US_STATES.has(state[1]!)) return "us";
+
+  return null;
+}
+
+/**
+ * Rank contribution from country agreement. Same +1, unknown 0, different -1.
+ *
+ * Deliberately ±1 against a seniority rank that runs 1..13 and a department
+ * match that doubles the score. It reorders candidates who are otherwise tied
+ * and cannot invert a seniority or department gap.
+ *
+ * Kept this weak on purpose, and the reason is worth stating plainly: in the
+ * pipeline this was built from, *both* contacts known to be relevant were
+ * country-mismatched — a UK-based TA partner on a US requisition, and an
+ * India-registered recruiter staffing Arizona. A ccTLD separates where a
+ * profile was registered from nothing else. It is a weak proxy under test, not
+ * a validated signal, and anything heavier would demote the two people who
+ * actually mattered.
+ *
+ * Unknown scores 0 rather than -1. Two thirds of profiles carry no ccTLD, and
+ * penalising silence would rank the majority below a signal they never had.
+ */
+export function countryRankDelta(candidate: CountryHint, job: CountryHint): -1 | 0 | 1 {
+  if (!candidate || !job) return 0;
+  return candidate === job ? 1 : -1;
+}
+
+/** Label for a mismatch, stating the signal rather than asserting a residence. */
+export function countryMismatchLabel(candidate: CountryHint, job: CountryHint): string | null {
+  if (!candidate || !job || candidate === job) return null;
+  return `Profile registered in ${candidate.toUpperCase()} · posting is ${job.toUpperCase()}`;
+}
+
 /** True when the local part looks like a recruiting inbox rather than a person. */
 export function classifyEmail(email: string): boolean {
   const local = email.split("@")[0]?.toLowerCase() ?? "";
@@ -731,12 +920,72 @@ export function matchesPerson(email: string, name: string, domain: string | null
  * name and everything after it is the headline. Titles without a dash fall back
  * to treating the whole string as the name rather than inventing a split.
  */
+/**
+ * Tidy a headline that a search engine has already truncated.
+ *
+ * Result titles arrive cut to a fixed width, so they routinely end mid-word or
+ * mid-company: "Project Engineering Manager at Bechtel ..." shipped to the UI
+ * with the ellipsis attached. Two separate defects live in that one string —
+ * the ellipsis itself, and the dangling " at <fragment>" it leaves behind.
+ *
+ * The employer fragment is dropped rather than repaired. "at Bechtel" from a
+ * truncated string could equally be Bechtel, Bechtel Plant Machinery or
+ * Bechtel Marine; keeping half a name and presenting it as the employer is a
+ * guess wearing the clothes of a fact.
+ */
+export function tidyHeadline(raw: string): string {
+  let out = (raw ?? "").trim();
+
+  // Trailing ellipsis in any spelling, possibly repeated or spaced.
+  out = out.replace(/[\s.…]*(?:\.{2,}|…)\s*$/u, "").trim();
+
+  // A dangling employer clause left behind by the cut. Only stripped when it
+  // sits at the very end, so "Recruiter at Bechtel, Houston" keeps its company.
+  out = out.replace(/\s+(?:at|@)\s*$/i, "").trim();
+
+  // Collapse whitespace and shed orphaned punctuation the cut left behind.
+  return out
+    .replace(/\s+/g, " ")
+    .replace(/[\s,;:·|/-]+$/u, "")
+    .trim();
+}
+
+/**
+ * Does this text actually place the person at the company we searched for?
+ *
+ * A search for recruiters at one company returns profiles that merely mention
+ * it, so the employer needs confirming rather than assuming. Matched on a
+ * normalised leading token — "Bechtel" confirms "Bechtel Corporation" —
+ * because the full legal name almost never appears in a headline.
+ */
+export function confirmsEmployer(text: string, company: string | null | undefined): boolean {
+  if (!company) return false;
+  const haystack = (text ?? "").toLowerCase();
+  if (!haystack) return false;
+
+  const key = company
+    .toLowerCase()
+    .replace(/\b(inc|llc|ltd|limited|corp|corporation|company|co|group|plc|gmbh|sa|nv)\b\.?/g, " ")
+    .replace(/[^a-z0-9 ]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (key.length < 3) return false;
+
+  // The distinctive leading word carries the identification; trailing filler
+  // like "corporation" was stripped above precisely so it cannot be required.
+  const lead = key.split(" ")[0] ?? "";
+  return lead.length >= 3 && haystack.includes(lead);
+}
+
+/** Shown in place of an employer when the source never confirmed one. */
+export const EMPLOYER_UNCONFIRMED = "company not confirmed in source";
+
 export function parseLinkedInTitle(rawTitle: string): { name: string; title: string } {
-  const cleaned = rawTitle.replace(/\s*\|\s*LinkedIn.*$/i, "").trim();
+  const cleaned = tidyHeadline(rawTitle.replace(/\s*\|\s*LinkedIn.*$/i, ""));
   const parts = cleaned.split(/\s+[-–—]\s+/);
   return {
-    name: (parts[0] ?? cleaned).trim(),
-    title: parts.slice(1).join(" – ").trim(),
+    name: tidyHeadline(parts[0] ?? cleaned),
+    title: tidyHeadline(parts.slice(1).join(" – ")),
   };
 }
 

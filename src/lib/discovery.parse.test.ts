@@ -2,6 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   capUntrusted,
   checkDomainFormat,
+  confirmsEmployer,
+  countryFromJobLocation,
+  countryFromLinkedInUrl,
+  countryMismatchLabel,
+  countryRankDelta,
+  EMPLOYER_UNCONFIRMED,
   classifyEmail,
   emailAppearsInSource,
   extractEmails,
@@ -23,6 +29,7 @@ import {
   parseLinkedInTitle,
   scoreReferralCandidate,
   stripHtml,
+  tidyHeadline,
 } from "./discovery.parse";
 
 describe("isJobBoard", () => {
@@ -633,5 +640,216 @@ describe("linkedInAlumniSearchUrl", () => {
   it("stays a valid URL when a part is missing", () => {
     expect(linkedInAlumniSearchUrl("Stripe", "")).toContain("keywords=Stripe&");
     expect(() => new URL(linkedInAlumniSearchUrl("", ""))).not.toThrow();
+  });
+});
+
+describe("tidyHeadline", () => {
+  it("strips the trailing ellipsis a truncated result carries", () => {
+    // Shipped to the UI verbatim in a real run, ellipsis and all.
+    expect(tidyHeadline("Project Engineering Manager at Bechtel ...")).toBe(
+      "Project Engineering Manager at Bechtel",
+    );
+    expect(tidyHeadline("Talent Acquisition Lead…")).toBe("Talent Acquisition Lead");
+    expect(tidyHeadline("Recruiter .....")).toBe("Recruiter");
+  });
+
+  it("drops an employer clause the cut left dangling", () => {
+    // "at" with nothing after it is not an employer, it is a severed sentence.
+    expect(tidyHeadline("Senior Recruiter at")).toBe("Senior Recruiter");
+    expect(tidyHeadline("Senior Recruiter at ...")).toBe("Senior Recruiter");
+  });
+
+  it("keeps a company that survived the cut intact", () => {
+    expect(tidyHeadline("Recruiter at Bechtel, Houston")).toBe("Recruiter at Bechtel, Houston");
+    expect(tidyHeadline("Construction Coordinator at Bechtel")).toBe(
+      "Construction Coordinator at Bechtel",
+    );
+  });
+
+  it("sheds orphaned punctuation and collapses whitespace", () => {
+    expect(tidyHeadline("Talent   Partner  -")).toBe("Talent Partner");
+    expect(tidyHeadline("Recruiter |")).toBe("Recruiter");
+    expect(tidyHeadline("  Lead Engineer ,  ")).toBe("Lead Engineer");
+  });
+
+  it("leaves an ordinary headline alone", () => {
+    expect(tidyHeadline("Technical Recruiter")).toBe("Technical Recruiter");
+    expect(tidyHeadline("")).toBe("");
+  });
+});
+
+describe("parseLinkedInTitle with truncated input", () => {
+  it("tidies both halves, not just the whole", () => {
+    const parsed = parseLinkedInTitle(
+      "Krishan K - Project Engineering Manager at Bechtel ... | LinkedIn",
+    );
+    expect(parsed.name).toBe("Krishan K");
+    expect(parsed.title).toBe("Project Engineering Manager at Bechtel");
+  });
+
+  it("does not leave a dangling employer in the title half", () => {
+    const parsed = parseLinkedInTitle("Jane Doe - Senior Recruiter at ... | LinkedIn");
+    expect(parsed.title).toBe("Senior Recruiter");
+  });
+});
+
+describe("confirmsEmployer", () => {
+  it("confirms on the distinctive leading word", () => {
+    // The full legal name almost never appears in a headline.
+    expect(confirmsEmployer("Project Engineering Manager at Bechtel", "Bechtel Corporation")).toBe(
+      true,
+    );
+    expect(confirmsEmployer("Recruiter, Turner Construction", "Turner Construction Company")).toBe(
+      true,
+    );
+  });
+
+  it("is case and punctuation insensitive", () => {
+    expect(confirmsEmployer("recruiter at BECHTEL", "Bechtel, Inc.")).toBe(true);
+  });
+
+  it("does not confirm an unrelated employer", () => {
+    expect(confirmsEmployer("Senior Recruiter at Fluor", "Bechtel Corporation")).toBe(false);
+    expect(confirmsEmployer("Talent Partner", "Bechtel Corporation")).toBe(false);
+  });
+
+  it("refuses to confirm on a corporate suffix alone", () => {
+    // "Corporation" must never be what identifies the employer.
+    expect(confirmsEmployer("Manager at Acme Corporation", "Bechtel Corporation")).toBe(false);
+  });
+
+  it("returns false rather than throwing on missing input", () => {
+    expect(confirmsEmployer("", "Bechtel")).toBe(false);
+    expect(confirmsEmployer("Recruiter at Bechtel", null)).toBe(false);
+    expect(confirmsEmployer("Recruiter at Bechtel", "")).toBe(false);
+  });
+
+  it("has a label to show when confirmation fails", () => {
+    expect(EMPLOYER_UNCONFIRMED).toBe("company not confirmed in source");
+  });
+});
+
+describe("countryFromLinkedInUrl", () => {
+  it("reads the ccTLD subdomain", () => {
+    expect(countryFromLinkedInUrl("https://in.linkedin.com/in/krishan-k")).toBe("in");
+    expect(countryFromLinkedInUrl("https://uk.linkedin.com/in/jane-doe")).toBe("uk");
+    expect(countryFromLinkedInUrl("https://ca.linkedin.com/in/someone")).toBe("ca");
+    expect(countryFromLinkedInUrl("https://de.linkedin.com/in/someone")).toBe("de");
+  });
+
+  it("treats a bare www profile as unknown, never as US", () => {
+    // Two thirds of profiles are bare. Reading those as American would invent
+    // a signal for the majority of the result set.
+    expect(countryFromLinkedInUrl("https://www.linkedin.com/in/jane-doe")).toBeNull();
+    expect(countryFromLinkedInUrl("https://linkedin.com/in/jane-doe")).toBeNull();
+  });
+
+  it("returns null for junk rather than throwing", () => {
+    expect(countryFromLinkedInUrl("")).toBeNull();
+    expect(countryFromLinkedInUrl(null)).toBeNull();
+    expect(countryFromLinkedInUrl("not a url")).toBeNull();
+  });
+});
+
+describe("countryFromJobLocation", () => {
+  it("reads a bare US state code, the shape analyzeJob actually returns", () => {
+    expect(countryFromJobLocation("Millersport, OH")).toBe("us");
+    expect(countryFromJobLocation("Phoenix, AZ 85004")).toBe("us");
+    expect(countryFromJobLocation("Reston, VA")).toBe("us");
+  });
+
+  it("reads explicit country names and demonyms", () => {
+    expect(countryFromJobLocation("London, United Kingdom")).toBe("uk");
+    expect(countryFromJobLocation("Bengaluru, India")).toBe("in");
+    expect(countryFromJobLocation("Toronto, Canada")).toBe("ca");
+    expect(countryFromJobLocation("Houston, USA")).toBe("us");
+  });
+
+  it("reads a country qualifier on a remote posting", () => {
+    expect(countryFromJobLocation("Remote (US)")).toBe("us");
+    expect(countryFromJobLocation("Remote - United Kingdom")).toBe("uk");
+  });
+
+  it("returns unknown for bare Remote", () => {
+    // Remote from where is precisely what the string does not say.
+    expect(countryFromJobLocation("Remote")).toBeNull();
+    expect(countryFromJobLocation("Fully remote")).toBeNull();
+  });
+
+  it("returns unknown for a non-US city it cannot place", () => {
+    // Guessing a country from a city name is inference, and out of scope.
+    expect(countryFromJobLocation("Bengaluru")).toBeNull();
+    expect(countryFromJobLocation("")).toBeNull();
+    expect(countryFromJobLocation(null)).toBeNull();
+  });
+
+  it("does not mistake a non-state two-letter tail for a US state", () => {
+    expect(countryFromJobLocation("Somewhere, ZZ")).toBeNull();
+  });
+});
+
+describe("countryRankDelta", () => {
+  it("rewards a match and penalises a mismatch by one rank", () => {
+    expect(countryRankDelta("us", "us")).toBe(1);
+    expect(countryRankDelta("in", "us")).toBe(-1);
+  });
+
+  it("places unknown between the two, never last", () => {
+    // Silence is not a negative. Two thirds of profiles carry no ccTLD.
+    expect(countryRankDelta(null, "us")).toBe(0);
+    expect(countryRankDelta("us", null)).toBe(0);
+    expect(countryRankDelta(null, null)).toBe(0);
+  });
+
+  it("orders same above unknown above different", () => {
+    const job = "us";
+    const same = countryRankDelta("us", job);
+    const unknown = countryRankDelta(null, job);
+    const different = countryRankDelta("in", job);
+    expect(same).toBeGreaterThan(unknown);
+    expect(unknown).toBeGreaterThan(different);
+  });
+});
+
+describe("country as a tiebreaker, not a gate", () => {
+  // Mirrors how the scorers combine the pieces: seniority rank, doubled on a
+  // department match, then the country delta applied last.
+  const score = (rank: number, deptMatch: boolean, delta: -1 | 0 | 1) =>
+    rank * (deptMatch ? 2 : 1) + delta;
+
+  it("lifts a same-country mid-level above a different-country senior", () => {
+    const sameMid = score(5, true, 1); // 11
+    const diffSenior = score(5, true, -1); // 9
+    expect(sameMid).toBeGreaterThan(diffSenior);
+  });
+
+  it("does NOT lift a same-country mid-level above a same-country senior", () => {
+    // The whole point of ±1: it cannot invert a real seniority gap.
+    const sameMid = score(5, true, 1); // 11
+    const sameSenior = score(9, true, 1); // 19
+    expect(sameMid).toBeLessThan(sameSenior);
+  });
+
+  it("cannot invert a department gap either", () => {
+    const sameCountryWrongDept = score(6, false, 1); // 7
+    const diffCountryRightDept = score(6, true, -1); // 11
+    expect(diffCountryRightDept).toBeGreaterThan(sameCountryWrongDept);
+  });
+
+  it("only reorders candidates otherwise tied", () => {
+    expect(score(7, true, 1)).toBeGreaterThan(score(7, true, 0));
+    expect(score(7, true, 0)).toBeGreaterThan(score(7, true, -1));
+  });
+});
+
+describe("countryMismatchLabel", () => {
+  it("states the signal rather than asserting where someone lives", () => {
+    expect(countryMismatchLabel("in", "us")).toBe("Profile registered in IN · posting is US");
+  });
+
+  it("says nothing when there is agreement or no signal", () => {
+    expect(countryMismatchLabel("us", "us")).toBeNull();
+    expect(countryMismatchLabel(null, "us")).toBeNull();
+    expect(countryMismatchLabel("in", null)).toBeNull();
   });
 });

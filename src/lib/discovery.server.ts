@@ -13,6 +13,10 @@ import {
   isJobBoard,
   matchesPerson,
   normalizeDomain,
+  confirmsEmployer,
+  countryFromJobLocation,
+  countryFromLinkedInUrl,
+  countryRankDelta,
   parseLinkedInTitle,
   scoreReferralCandidate,
   stripHtml,
@@ -266,6 +270,7 @@ export async function webSearch(query: string, cache?: SearchCache): Promise<Sea
 export async function findLinkedInProfiles(
   company: string,
   roleTitle: string,
+  jobLocation: string | null,
   cache?: SearchCache,
 ): Promise<FoundProfile[]> {
   /*
@@ -292,7 +297,14 @@ export async function findLinkedInProfiles(
       if (seen.has(url)) continue;
       const { name, title } = parseLinkedInTitle(r.title);
       if (!name) continue;
-      seen.set(url, { name, title, linkedinUrl: url, sourceUrl: r.url });
+      seen.set(url, {
+        name,
+        title,
+        linkedinUrl: url,
+        sourceUrl: r.url,
+        // Title and snippet together: either may carry the employer.
+        employerConfirmed: confirmsEmployer(`${r.title} ${r.snippet}`, company),
+      });
     }
     // Space out scraped-engine queries so they don't throttle us. A real search
     // API needs no such courtesy, and there is nothing to wait for after the
@@ -301,7 +313,41 @@ export async function findLinkedInProfiles(
       await new Promise((r) => setTimeout(r, 600));
     }
   }
-  return [...seen.values()].slice(0, 8);
+  /*
+   * Country is a tiebreaker, never a gate. Nothing is dropped; a mismatch just
+   * sorts below a match, and unknown sits between them. sort is stable, so
+   * candidates with equal delta keep the order search returned them in.
+   */
+  const jobCountry = countryFromJobLocation(jobLocation);
+  const ranked = [...seen.values()]
+    .map((p) => ({ p, delta: countryRankDelta(countryFromLinkedInUrl(p.linkedinUrl), jobCountry) }))
+    .sort((a, b) => b.delta - a.delta);
+  logCountryMix("discover_contacts", ranked, jobCountry);
+  return ranked.map(({ p }) => p).slice(0, 8);
+}
+
+/**
+ * Report how the country hint actually landed this run.
+ *
+ * The signal is a weak proxy on trial, so the counts are logged rather than
+ * assumed: without them there is no way to tell later whether it is helping or
+ * merely reordering noise.
+ */
+function logCountryMix(
+  fn: string,
+  ranked: { delta: -1 | 0 | 1 }[],
+  jobCountry: string | null,
+): void {
+  console.info(
+    "[country-hint]",
+    JSON.stringify({
+      fn,
+      jobCountry,
+      same: ranked.filter((r) => r.delta === 1).length,
+      different: ranked.filter((r) => r.delta === -1).length,
+      unknown: ranked.filter((r) => r.delta === 0).length,
+    }),
+  );
 }
 
 /** Search the open web for a published email that belongs to a named person. */
@@ -358,6 +404,7 @@ export async function findReferralProfiles(
   company: string,
   department: string | null,
   roleTitle: string,
+  jobLocation: string | null,
   cache?: SearchCache,
 ): Promise<FoundProfile[]> {
   const focus = department ?? roleTitle;
@@ -380,17 +427,36 @@ export async function findReferralProfiles(
       const score = scoreReferralCandidate(title, department);
       // 0 means junior, a recruiter, or the wrong function — not a referrer.
       if (score === 0) continue;
-      seen.set(url, { name, title, linkedinUrl: url, sourceUrl: r.url, score });
+      seen.set(url, {
+        name,
+        title,
+        linkedinUrl: url,
+        sourceUrl: r.url,
+        // Title and snippet together: either may carry the employer.
+        employerConfirmed: confirmsEmployer(`${r.title} ${r.snippet}`, company),
+        score,
+      });
     }
     if (!hasSearchApi() && index < queries.length - 1) {
       await new Promise((r) => setTimeout(r, 600));
     }
   }
 
-  return [...seen.values()]
-    .sort((a, b) => b.score - a.score)
+  /*
+   * Seniority rank runs 1..13 and a department match doubles it, so a ±1
+   * country delta reorders ties without ever inverting a real gap.
+   */
+  const jobCountry = countryFromJobLocation(jobLocation);
+  const ranked = [...seen.values()].map((entry) => ({
+    ...entry,
+    delta: countryRankDelta(countryFromLinkedInUrl(entry.linkedinUrl), jobCountry),
+  }));
+  logCountryMix("discover_referrers", ranked, jobCountry);
+
+  return ranked
+    .sort((a, b) => b.score + b.delta - (a.score + a.delta))
     .slice(0, 8)
-    .map(({ score: _score, ...profile }) => profile);
+    .map(({ score: _score, delta: _delta, ...profile }) => profile);
 }
 
 export function linkedInPeopleSearchUrl(company: string, keywords: string): string {

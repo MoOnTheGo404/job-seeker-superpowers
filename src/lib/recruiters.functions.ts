@@ -207,12 +207,19 @@ export const discoverContacts = createServerFn({ method: "POST" })
       searchPersonEmail,
       verifyDomain,
     } = await import("./discovery.server");
-    const { hasTraceableEmail } = await import("./discovery.parse");
+    const {
+      EMPLOYER_UNCONFIRMED,
+      countryFromJobLocation,
+      countryFromLinkedInUrl,
+      countryMismatchLabel,
+      hasTraceableEmail,
+    } = await import("./discovery.parse");
+    const jobCountry = countryFromJobLocation(target.location);
 
     const domain = target.company_domain ? await verifyDomain(target.company_domain) : null;
 
     const [profiles, inboxEmails] = await Promise.all([
-      findLinkedInProfiles(target.company, target.role_title, cache),
+      findLinkedInProfiles(target.company, target.role_title, target.location, cache),
       domain ? crawlCompanyEmails(domain) : Promise.resolve([]),
     ]);
 
@@ -241,9 +248,25 @@ export const discoverContacts = createServerFn({ method: "POST" })
         email: personEmail?.email ?? null,
         email_source_url: personEmail?.sourceUrl ?? null,
         email_status: personEmail ? "verified_public" : "not_found",
-        notes: personEmail
-          ? "Email found published on a public web page (link included)."
-          : "No publicly published email found — reach out on LinkedIn instead.",
+        notes: [
+          personEmail
+            ? "Email found published on a public web page (link included)."
+            : "No publicly published email found — reach out on LinkedIn instead.",
+          /*
+           * State it rather than leave a blank. A card with no employer gave no
+           * way to tell whether the person was even at the target company, and
+           * silence read as "not there" when it only ever meant "not stated".
+           */
+          profile.employerConfirmed ? "" : `${EMPLOYER_UNCONFIRMED} — ${target.company}`,
+          /*
+           * States the signal, not a residence. A ccTLD says where a profile
+           * was registered and nothing else — the person may well work the
+           * requisition anyway, so this is shown rather than filtered on.
+           */
+          countryMismatchLabel(countryFromLinkedInUrl(profile.linkedinUrl), jobCountry) ?? "",
+        ]
+          .filter(Boolean)
+          .join(" · "),
       });
     });
 
@@ -359,11 +382,19 @@ export const discoverReferrers = createServerFn({ method: "POST" })
 
     const { createSearchCache } = await import("./cache.server");
     const { findReferralProfiles, linkedInPeopleSearchUrl } = await import("./discovery.server");
+    const {
+      EMPLOYER_UNCONFIRMED,
+      countryFromJobLocation,
+      countryFromLinkedInUrl,
+      countryMismatchLabel,
+    } = await import("./discovery.parse");
+    const jobCountry = countryFromJobLocation(target.location);
 
     const profiles = await findReferralProfiles(
       target.company,
       target.department,
       target.role_title,
+      target.location,
       createSearchCache(supabase),
     );
 
@@ -375,8 +406,13 @@ export const discoverReferrers = createServerFn({ method: "POST" })
       email: null,
       email_source_url: null,
       email_status: "not_found",
-      notes:
+      notes: [
         "Potential referrer — senior in this team. Ask on LinkedIn: a referral request is a favour, and cold-emailing someone's work address for one tends to land badly.",
+        profile.employerConfirmed ? "" : `${EMPLOYER_UNCONFIRMED} — ${target.company}`,
+        countryMismatchLabel(countryFromLinkedInUrl(profile.linkedinUrl), jobCountry) ?? "",
+      ]
+        .filter(Boolean)
+        .join(" · "),
     }));
 
     if (!contacts.length) {
