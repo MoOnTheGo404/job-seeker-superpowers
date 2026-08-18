@@ -35,7 +35,7 @@ export interface AnalyzedJob {
 
 export const analyzeJob = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: { jobUrl?: string; jobText?: string }) => {
+  .validator((input: { jobUrl?: string; jobText?: string }) => {
     if (!input.jobUrl && !input.jobText)
       throw new Error("Paste a job link or the job description.");
     return input;
@@ -180,7 +180,7 @@ export interface DiscoveredContact {
 
 export const discoverContacts = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: { targetId: string }) => {
+  .validator((input: { targetId: string }) => {
     if (!input.targetId) throw new Error("Missing job target.");
     return input;
   })
@@ -340,7 +340,7 @@ export const discoverContacts = createServerFn({ method: "POST" })
  */
 export const discoverReferrers = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: { targetId: string }) => {
+  .validator((input: { targetId: string }) => {
     if (!input.targetId) throw new Error("Missing job target.");
     return input;
   })
@@ -419,7 +419,7 @@ export const discoverReferrers = createServerFn({ method: "POST" })
 
 export const draftOutreach = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator(
+  .validator(
     (input: {
       contactId: string;
       channel: "email" | "linkedin";
