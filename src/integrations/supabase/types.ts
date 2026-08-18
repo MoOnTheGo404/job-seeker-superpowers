@@ -120,6 +120,8 @@ export type Database = {
           created_at: string;
           id: string;
           message: string;
+          parent_outreach_id: string | null;
+          sent_at: string | null;
           status: string;
           subject: string | null;
           user_id: string;
@@ -131,6 +133,8 @@ export type Database = {
           created_at?: string;
           id?: string;
           message: string;
+          parent_outreach_id?: string | null;
+          sent_at?: string | null;
           status?: string;
           subject?: string | null;
           user_id: string;
@@ -142,6 +146,8 @@ export type Database = {
           created_at?: string;
           id?: string;
           message?: string;
+          parent_outreach_id?: string | null;
+          sent_at?: string | null;
           status?: string;
           subject?: string | null;
           user_id?: string;
@@ -152,6 +158,13 @@ export type Database = {
             columns: ["contact_id"];
             isOneToOne: false;
             referencedRelation: "contacts";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "outreach_parent_outreach_id_fkey";
+            columns: ["parent_outreach_id"];
+            isOneToOne: false;
+            referencedRelation: "outreach";
             referencedColumns: ["id"];
           },
         ];
