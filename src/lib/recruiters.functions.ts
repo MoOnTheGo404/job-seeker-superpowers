@@ -560,3 +560,131 @@ export const draftOutreach = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
     return saved;
   });
+
+/**
+ * Move one message along the lifecycle.
+ *
+ * Most calls arrive from something the user was doing anyway — copying a
+ * draft, opening their mail client — rather than from a status control. That
+ * is the whole design: a tracker nobody remembers to update is a tracker that
+ * lies within a week.
+ *
+ * The transition is validated against the current row rather than trusted from
+ * the client, so a stale tab cannot post `replied` over a message that was
+ * since reopened. RLS scopes the read and the write to the owner.
+ */
+export const updateOutreachStatus = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((input: { outreachId: string; status: string }) => {
+    if (!input.outreachId) throw new Error("Missing message.");
+    if (!input.status) throw new Error("Missing status.");
+    return input;
+  })
+  .handler(async ({ data, context }) => {
+    const { supabase } = context;
+    const { enforceRateLimit } = await import("./ratelimit.server");
+    await enforceRateLimit(supabase, "update_outreach_status");
+
+    const { canTransition, isOutreachStatus } = await import("./outreach.status");
+    if (!isOutreachStatus(data.status)) throw new Error("Unknown status.");
+
+    const { data: current, error: readError } = await supabase
+      .from("outreach")
+      .select("id, status, sent_at")
+      .eq("id", data.outreachId)
+      .maybeSingle();
+    if (readError) throw new Error(readError.message);
+    if (!current) throw new Error("Message not found.");
+
+    if (!canTransition(current.status, data.status)) {
+      throw new Error(`Can't move a message from ${current.status} to ${data.status}.`);
+    }
+
+    /*
+     * sent_at is set on the way in and cleared on the way back out. Undo has to
+     * clear it or the message stays eligible for follow-up forever, having
+     * never been sent.
+     */
+    const patch: { status: string; sent_at?: string | null } = { status: data.status };
+    if (data.status === "sent") patch.sent_at = new Date().toISOString();
+    if (data.status === "drafted") patch.sent_at = null;
+
+    const { data: saved, error } = await supabase
+      .from("outreach")
+      .update(patch)
+      .eq("id", data.outreachId)
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
+
+    console.info(
+      "[outreach-status]",
+      JSON.stringify({ from: current.status, to: data.status, id: data.outreachId }),
+    );
+    return saved;
+  });
+
+/**
+ * Delete a job target and everything hanging off it.
+ *
+ * Contacts cascade from job_targets and outreach cascades from contacts, so a
+ * single delete clears the whole tree without leaving orphans. Irreversible,
+ * which is why the caller confirms with a count first.
+ */
+export const deleteJobTarget = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((input: { targetId: string }) => {
+    if (!input.targetId) throw new Error("Missing job target.");
+    return input;
+  })
+  .handler(async ({ data, context }) => {
+    const { supabase } = context;
+    const { enforceRateLimit } = await import("./ratelimit.server");
+    await enforceRateLimit(supabase, "delete_job_target");
+
+    const { error } = await supabase.from("job_targets").delete().eq("id", data.targetId);
+    if (error) throw new Error(error.message);
+    return { deleted: true };
+  });
+
+/**
+ * Close every message still waiting on a reply for one target.
+ *
+ * Offered when a target moves to `interviewing` or `closed`: reaching either
+ * means the outreach resolved, and asking the user to close each message by
+ * hand is the busywork that kills trackers. Confirmed rather than silent,
+ * because "closed" can also mean rejected and the user may still be waiting on
+ * someone.
+ */
+export const closeOutreachForTarget = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((input: { targetId: string }) => {
+    if (!input.targetId) throw new Error("Missing job target.");
+    return input;
+  })
+  .handler(async ({ data, context }) => {
+    const { supabase } = context;
+    const { enforceRateLimit } = await import("./ratelimit.server");
+    await enforceRateLimit(supabase, "update_outreach_status");
+
+    const { data: contactRows, error: contactError } = await supabase
+      .from("contacts")
+      .select("id")
+      .eq("target_id", data.targetId);
+    if (contactError) throw new Error(contactError.message);
+
+    const contactIds = (contactRows ?? []).map((c) => c.id);
+    if (!contactIds.length) return { closed: 0 };
+
+    // Only states that are still open. replied and closed have already
+    // resolved, and drafted was never sent.
+    const { data: closed, error } = await supabase
+      .from("outreach")
+      .update({ status: "closed" })
+      .in("contact_id", contactIds)
+      .in("status", ["sent", "no_reply"])
+      .select("id");
+    if (error) throw new Error(error.message);
+
+    return { closed: (closed ?? []).length };
+  });

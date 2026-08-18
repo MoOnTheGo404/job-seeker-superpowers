@@ -20,7 +20,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { Win95Window, GroupBox } from "@/components/win95/Window";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { discoverContacts, discoverReferrers, draftOutreach } from "@/lib/recruiters.functions";
+import {
+  closeOutreachForTarget,
+  deleteJobTarget,
+  discoverContacts,
+  discoverReferrers,
+  draftOutreach,
+  updateOutreachStatus,
+} from "@/lib/recruiters.functions";
+import type { OutreachStatus } from "@/lib/outreach.status";
 import { linkedInAlumniSearchUrl, parseSchools } from "@/lib/discovery.parse";
 
 export const Route = createFileRoute("/target/$id")({
@@ -451,11 +459,16 @@ function ContactCard({
   purpose: "application" | "referral";
 }) {
   const draft = useServerFn(draftOutreach);
+  const setStatus = useServerFn(updateOutreachStatus);
+  const queryClient = useQueryClient();
   const [channel, setChannel] = useState<"email" | "linkedin">(
     contact.email ? "email" : "linkedin",
   );
   const [message, setMessage] = useState("");
   const [subject, setSubject] = useState<string | null>(null);
+  // The row id was previously discarded, which left nothing to mark as sent.
+  const [outreachId, setOutreachId] = useState<string | null>(null);
+  const [status, setStatusLocal] = useState<OutreachStatus>("drafted");
 
   const generate = useMutation({
     mutationFn: async () =>
@@ -472,9 +485,41 @@ function ContactCard({
     onSuccess: (row) => {
       setMessage(row.message);
       setSubject(row.subject);
+      setOutreachId(row.id);
+      setStatusLocal("drafted");
     },
     onError: (e: Error) => toast.error(e.message),
   });
+
+  const move = useMutation({
+    mutationFn: async (next: OutreachStatus) => {
+      if (!outreachId) return null;
+      return setStatus({ data: { outreachId, status: next } });
+    },
+    onSuccess: (row) => {
+      if (!row) return;
+      setStatusLocal(row.status as OutreachStatus);
+      queryClient.invalidateQueries({ queryKey: ["follow-ups"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  /*
+   * Copying a draft is sending it. Nobody copies a message they do not intend
+   * to use, and asking them to also flip a dropdown afterwards is the step
+   * people skip — after which the tracker is wrong and they stop trusting it.
+   * Undo covers the case where they were only re-reading.
+   */
+  function markSent() {
+    if (!outreachId || status !== "drafted") return;
+    move.mutate("sent", {
+      onSuccess: () =>
+        toast.success("Marked as sent", {
+          action: { label: "Undo", onClick: () => move.mutate("drafted") },
+          duration: 6000,
+        }),
+    });
+  }
 
   return (
     <GroupBox label={contact.name ?? "Recruiting team"} className="bg-w95-face">
@@ -592,7 +637,7 @@ function ContactCard({
                 variant="secondary"
                 onClick={() => {
                   navigator.clipboard.writeText(message);
-                  toast.success("Message copied");
+                  markSent();
                 }}
               >
                 <Copy className="size-3" /> Copy
@@ -601,6 +646,7 @@ function ContactCard({
                 <Button asChild size="sm">
                   <a
                     href={`mailto:${contact.email}?subject=${encodeURIComponent(subject ?? "")}&body=${encodeURIComponent(message)}`}
+                    onClick={markSent}
                   >
                     <Mail className="size-3" /> Open in mail app
                   </a>

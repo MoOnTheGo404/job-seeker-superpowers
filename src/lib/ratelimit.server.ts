@@ -19,6 +19,14 @@ export const LIMITS = {
   discover_referrers: { limit: 12, windowSeconds: 3600 },
   /** Cheap, but users iterate on wording, so allow plenty. */
   draft_outreach: { limit: 40, windowSeconds: 3600 },
+  /*
+   * A single row update, and it fires from ordinary actions — copying a draft,
+   * clicking undo, marking a reply. The limit is a runaway guard, not a
+   * budget, so it sits high enough that no real session reaches it.
+   */
+  update_outreach_status: { limit: 300, windowSeconds: 3600 },
+  /** Destructive and deliberate; nobody deletes thirty targets an hour. */
+  delete_job_target: { limit: 30, windowSeconds: 3600 },
 } as const;
 
 export type RateLimitedAction = keyof typeof LIMITS;

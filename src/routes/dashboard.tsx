@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { FileText, FolderOpen, Plus } from "lucide-react";
+import { Clock, FileText, FolderOpen, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { AppHeader } from "@/components/AppHeader";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Win95Window, GroupBox } from "@/components/win95/Window";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { analyzeJob } from "@/lib/recruiters.functions";
+import { analyzeJob, deleteJobTarget, updateOutreachStatus } from "@/lib/recruiters.functions";
+import { FOLLOW_UP_DAYS, needsFollowUp, waitingLabel } from "@/lib/outreach.status";
 
 export const Route = createFileRoute("/dashboard")({
   head: () => ({
@@ -55,6 +56,55 @@ function Dashboard() {
       if (error) throw new Error(error.message);
       return data;
     },
+  });
+
+  /*
+   * Everything sent and still silent. Read directly under RLS, the same way
+   * targets and contacts already are; only the writes go through server
+   * functions.
+   *
+   * The staleness cut is applied client-side rather than in the query so the
+   * boundary lives in one tested place instead of being restated as SQL.
+   */
+  const followUps = useQuery({
+    queryKey: ["follow-ups", user?.id],
+    enabled: Boolean(user),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("outreach")
+        .select(
+          "id, status, sent_at, subject, channel, purpose, contacts(name, title, job_targets(id, company, role_title))",
+        )
+        .eq("status", "sent")
+        .order("sent_at", { ascending: true });
+      if (error) throw new Error(error.message);
+      return data ?? [];
+    },
+  });
+
+  const now = new Date();
+  const waiting = (followUps.data ?? []).filter((row) => needsFollowUp(row, now));
+
+  const moveStatus = useServerFn(updateOutreachStatus);
+  const resolve = useMutation({
+    mutationFn: async (vars: { outreachId: string; status: "replied" | "no_reply" }) =>
+      moveStatus({ data: vars }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["follow-ups"] });
+      toast.success("Updated");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const removeTarget = useServerFn(deleteJobTarget);
+  const destroy = useMutation({
+    mutationFn: async (targetId: string) => removeTarget({ data: { targetId } }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["targets"] });
+      queryClient.invalidateQueries({ queryKey: ["follow-ups"] });
+      toast.success("Job target deleted");
+    },
+    onError: (e: Error) => toast.error(e.message),
   });
 
   const addTarget = useMutation({
@@ -144,6 +194,89 @@ function Dashboard() {
           </div>
         </Win95Window>
 
+        {/*
+          Always rendered, including when empty. An absent panel is ambiguous —
+          it could mean nothing is waiting or that the feature is broken — and
+          the whole point is that a glance at the main surface is enough.
+        */}
+        <Win95Window
+          title="Needs follow-up"
+          icon={<Clock className="size-3.5 text-black" />}
+          menu={["File", "Edit", "View", "Help"]}
+          status={[
+            waiting.length
+              ? `${waiting.length} waiting`
+              : followUps.isLoading
+                ? "Loading…"
+                : "Nothing waiting",
+            `Sent over ${FOLLOW_UP_DAYS} days ago`,
+          ]}
+          bodyClassName="bg-w95-face p-2"
+        >
+          {waiting.length === 0 ? (
+            <p className="px-1 py-2 text-[11px] text-black">
+              Nothing waiting. Messages appear here once they have been sent and gone{" "}
+              {FOLLOW_UP_DAYS} days without a reply.
+            </p>
+          ) : (
+            <ul className="bevel-in divide-y divide-w95-shadow bg-w95-field">
+              {waiting.map((row) => {
+                const contact = row.contacts as {
+                  name: string | null;
+                  title: string | null;
+                  job_targets: { id: string; company: string; role_title: string } | null;
+                } | null;
+                const job = contact?.job_targets ?? null;
+                const wait = waitingLabel(row.sent_at, now);
+                return (
+                  <li
+                    key={row.id}
+                    className="flex flex-wrap items-center justify-between gap-2 px-2 py-2"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-[11px] font-bold text-black">
+                        {contact?.name ?? "Recruiting team"}
+                        {job ? ` — ${job.company}` : ""}
+                      </p>
+                      <p className="truncate text-[11px] text-w95-muted">
+                        {job?.role_title ?? "—"}
+                        {wait ? ` · sent ${wait}` : ""}
+                        {row.purpose === "referral" ? " · referral ask" : ""}
+                      </p>
+                    </div>
+                    {/* One click each, no dropdown, no modal, no navigation. */}
+                    <div className="flex shrink-0 gap-1">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={resolve.isPending}
+                        onClick={() => resolve.mutate({ outreachId: row.id, status: "replied" })}
+                      >
+                        Replied
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={resolve.isPending}
+                        onClick={() => resolve.mutate({ outreachId: row.id, status: "no_reply" })}
+                      >
+                        No reply
+                      </Button>
+                      {job && (
+                        <Button size="sm" asChild>
+                          <Link to="/target/$id" params={{ id: job.id }}>
+                            Follow up
+                          </Link>
+                        </Button>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </Win95Window>
+
         <Win95Window
           title="My Job Targets"
           icon={<FolderOpen className="size-3.5 text-black" />}
@@ -156,15 +289,19 @@ function Dashboard() {
         >
           {/* Explorer "Details" view: sunken well, column headers, one row per item. */}
           <div className="bevel-in min-h-[220px] p-0">
-            <div className="grid grid-cols-[1fr_1fr_120px_92px] gap-0 border-b border-b-w95-shadow bg-w95-face">
-              {["Role", "Company", "Location", "Status"].map((h) => (
-                <div
-                  key={h}
-                  className="bevel-out-thin truncate px-2 py-[3px] text-[11px] font-bold text-black"
-                >
-                  {h}
-                </div>
-              ))}
+            <div className="flex border-b border-b-w95-shadow bg-w95-face">
+              <div className="grid flex-1 grid-cols-[1fr_1fr_120px_92px] gap-0">
+                {["Role", "Company", "Location", "Status"].map((h) => (
+                  <div
+                    key={h}
+                    className="bevel-out-thin truncate px-2 py-[3px] text-[11px] font-bold text-black"
+                  >
+                    {h}
+                  </div>
+                ))}
+              </div>
+              {/* Lines up with the per-row delete button below. */}
+              <div className="bevel-out-thin w-7 shrink-0 py-[3px]" aria-hidden="true" />
             </div>
 
             {targets.isLoading ? (
@@ -176,11 +313,11 @@ function Dashboard() {
             ) : (
               <ul>
                 {targets.data?.map((t) => (
-                  <li key={t.id}>
+                  <li key={t.id} className="flex items-center">
                     <Link
                       to="/target/$id"
                       params={{ id: t.id }}
-                      className="grid grid-cols-[1fr_1fr_120px_92px] items-center gap-0 px-0 py-[2px] text-[11px] text-black hover:bg-w95-title hover:text-white focus-visible:bg-w95-title focus-visible:text-white"
+                      className="grid flex-1 grid-cols-[1fr_1fr_120px_92px] items-center gap-0 px-0 py-[2px] text-[11px] text-black hover:bg-w95-title hover:text-white focus-visible:bg-w95-title focus-visible:text-white"
                     >
                       <span className="flex min-w-0 items-center gap-1 px-2">
                         <FileText className="size-3.5 shrink-0" />
@@ -190,6 +327,28 @@ function Dashboard() {
                       <span className="truncate px-2">{t.location ?? "—"}</span>
                       <span className="truncate px-2">{t.status}</span>
                     </Link>
+                    {/*
+                      Destructive and irreversible, so it confirms by name. A native confirm
+                      rather than a new dialog component: impossible to miss, and it adds no
+                      design primitive.
+                    */}
+                    <button
+                      type="button"
+                      title={`Delete ${t.role_title} at ${t.company}`}
+                      aria-label={`Delete ${t.role_title} at ${t.company}`}
+                      disabled={destroy.isPending}
+                      className="bevel-out grid w-7 shrink-0 cursor-pointer place-items-center self-stretch text-black disabled:opacity-50"
+                      onClick={() => {
+                        const ok = window.confirm(
+                          `Delete "${t.role_title}" at ${t.company}?\n\n` +
+                            "Its contacts and every drafted or sent message go with it. " +
+                            "This cannot be undone.",
+                        );
+                        if (ok) destroy.mutate(t.id);
+                      }}
+                    >
+                      <Trash2 className="size-3" />
+                    </button>
                   </li>
                 ))}
               </ul>
