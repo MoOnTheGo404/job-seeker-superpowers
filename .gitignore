@@ -16,9 +16,8 @@
 .claude/
 .dev.vars
 .env
-.env.*.local
-.env.backup-local
-.env.local
+.env.*
+!.env.example
 .idea
 .nitro
 .output
