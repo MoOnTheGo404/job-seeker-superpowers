@@ -300,6 +300,312 @@ export function normalizeDomain(domain: string): string | null {
   return /^[a-z0-9.-]+\.[a-z]{2,24}$/.test(clean) ? clean : null;
 }
 
+/* ============================================================================
+ * Untrusted-input defenses.
+ *
+ * analyzeJob feeds arbitrary third-party job postings to a model. A posting is
+ * attacker-controlled text, so anything the model derives from it is
+ * attacker-influenced — including company_domain, which discoverContacts then
+ * crawls for email addresses.
+ *
+ * That is the path that actually matters. The model never emits an email
+ * address (AnalyzedJob has no such field), so it cannot fabricate one. What it
+ * can do is name the wrong site as the employer, after which the crawler
+ * harvests real addresses from a page the attacker controls — addresses that
+ * genuinely appear in the fetched text and genuinely have a source URL, and so
+ * would pass any "did we really find this?" check. The defense has to sit on
+ * the domain, not on the email.
+ * ========================================================================= */
+
+export type DomainRejection =
+  "malformed" | "ip_literal" | "private_range" | "non_public_tld" | "confusable" | "uncorroborated";
+
+export interface DomainVerdict {
+  ok: boolean;
+  /** Canonical host when accepted, null when rejected. */
+  domain: string | null;
+  reason: DomainRejection | null;
+}
+
+/**
+ * Suffixes that never identify a public company website. `.internal` matters
+ * most: it passes normalizeDomain's shape test and is the conventional name for
+ * cloud metadata services.
+ */
+const NON_PUBLIC_SUFFIXES = [
+  "localhost",
+  "local",
+  "localdomain",
+  "internal",
+  "intranet",
+  "lan",
+  "home",
+  "home.arpa",
+  "corp",
+  "test",
+  "example",
+  "invalid",
+  "onion",
+];
+
+/** Dotted-quad ranges that are not routable on the public internet. */
+function isPrivateIpv4(host: string): boolean {
+  const parts = host.split(".").map(Number);
+  if (parts.length !== 4 || parts.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) {
+    return false;
+  }
+  const [a, b] = parts as [number, number, number, number];
+  return (
+    a === 10 ||
+    a === 127 ||
+    a === 0 ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 169 && b === 254) ||
+    (a === 100 && b >= 64 && b <= 127)
+  );
+}
+
+/**
+ * Gate one: is this string shaped like a public company hostname at all?
+ *
+ * Unconditional — nothing corroborates its way past this. A posting that
+ * mentions "localhost" a hundred times still cannot make localhost the
+ * employer.
+ */
+export function checkDomainFormat(raw: string): {
+  domain: string | null;
+  reason: DomainRejection | null;
+} {
+  /*
+   * NFKC first. Without it, fullwidth and other compatibility forms survive to
+   * the ASCII test below and read as ordinary characters to a human — ｅｘａｍｐｌｅ
+   * folds to example, and anything that does not fold is caught as confusable.
+   */
+  const trimmed = (raw ?? "").normalize("NFKC").trim().toLowerCase();
+  if (!trimmed) return { domain: null, reason: "malformed" };
+
+  // Strip scheme/path/port/credentials before shape checks so an attacker can't
+  // smuggle a host past them inside a URL.
+  const bare = trimmed
+    .replace(/^[a-z][a-z0-9+.-]*:\/\//, "")
+    .replace(/^[^/@]*@/, "")
+    .replace(/[/?#].*$/, "")
+    .replace(/:\d+$/, "")
+    .replace(/^\[|\]$/g, "")
+    .replace(/^www\./, "")
+    .replace(/\.$/, "");
+
+  if (!bare) return { domain: null, reason: "malformed" };
+
+  /*
+   * Homoglyph defense, both directions of the same attack.
+   *
+   * Raw Unicode: "аpple.com" with a Cyrillic а is a different host that renders
+   * identically to Apple's. Punycode: the same host written xn--pple-43d.com is
+   * pure ASCII and sails past every shape check below.
+   *
+   * Both are rejected rather than decoded and compared. Deciding whether an IDN
+   * is confusable needs full Unicode script-mixing analysis, and the honest
+   * trade is that a genuinely international company site is refused here and
+   * falls back to the job URL host. That shows up in the logs as `confusable`,
+   * so the cost is measurable rather than assumed.
+   */
+  if (/[^\x20-\x7e]/.test(bare)) return { domain: null, reason: "confusable" };
+  if (bare.split(".").some((l) => l.startsWith("xn--"))) {
+    return { domain: null, reason: "confusable" };
+  }
+
+  // IPv6, or any bracketed literal.
+  if (bare.includes(":")) return { domain: null, reason: "ip_literal" };
+
+  // Decimal (2130706433) and hex (0x7f000001) spellings of an IPv4 address.
+  if (/^\d+$/.test(bare) || /^0x[0-9a-f]+$/.test(bare)) {
+    return { domain: null, reason: "ip_literal" };
+  }
+
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(bare)) {
+    return { domain: null, reason: isPrivateIpv4(bare) ? "private_range" : "ip_literal" };
+  }
+
+  const labels = bare.split(".");
+  if (labels.length < 2) return { domain: null, reason: "non_public_tld" };
+  if (bare.length > 253) return { domain: null, reason: "malformed" };
+  if (labels.some((l) => l.length === 0 || l.length > 63))
+    return { domain: null, reason: "malformed" };
+  if (labels.some((l) => !/^[a-z0-9-]+$/.test(l) || l.startsWith("-") || l.endsWith("-"))) {
+    return { domain: null, reason: "malformed" };
+  }
+
+  const tld = labels[labels.length - 1]!;
+  if (!/^[a-z]{2,24}$/.test(tld)) return { domain: null, reason: "non_public_tld" };
+
+  for (const suffix of NON_PUBLIC_SUFFIXES) {
+    if (bare === suffix || bare.endsWith(`.${suffix}`)) {
+      return { domain: null, reason: "non_public_tld" };
+    }
+  }
+
+  /*
+   * Wildcard-DNS services (nip.io, sslip.io and friends) resolve
+   * 169.254.169.254.nip.io straight back to the embedded address, so a public
+   * TLD is not proof of a public target. Reject any host carrying a private
+   * dotted quad in its leading labels.
+   */
+  for (let i = 0; i + 4 <= labels.length; i++) {
+    const quad = labels.slice(i, i + 4).join(".");
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(quad)) {
+      return { domain: null, reason: isPrivateIpv4(quad) ? "private_range" : "ip_literal" };
+    }
+  }
+
+  return { domain: bare, reason: null };
+}
+
+/** Reduce a name to comparable letters, so "Acme, Inc." meets "acme". */
+function companyKey(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+/**
+ * Gate two: did anything other than the model's say-so point at this domain?
+ *
+ * Independent of the format gate — both must pass. Corroboration alone is not
+ * enough, because attacker-controlled text can corroborate anything it likes;
+ * its job is only to catch a domain the model produced from thin air or from an
+ * instruction embedded in the posting.
+ */
+export function isCorroboratedDomain(
+  domain: string,
+  context: { jobUrl?: string | null; company?: string | null },
+): boolean {
+  const { jobUrl, company } = context;
+
+  /*
+   * Note what is NOT consulted here: the text of the posting.
+   *
+   * "The domain appears in the fetched page" looks like corroboration and is
+   * worthless, because in this threat model the attacker wrote the page. A
+   * hostile posting that says "our website is attacker.com" corroborates itself
+   * and the gate passes it. Measured, not assumed — it returned true before
+   * this route was removed.
+   *
+   * What remains are the two signals the posting cannot forge on its own.
+   */
+
+  /*
+   * A job URL is required, not merely preferred.
+   *
+   * On the paste path the user supplies a description and no link, so the
+   * company name and the domain are both read out of the same block of text. A
+   * name match there proves only that the text agrees with itself — the same
+   * circularity as trusting the page, one step removed. Measured: a pasted
+   * posting naming "Acme Corp" and acmecorp-careers.net was accepted.
+   *
+   * With no independent signal available, the safe answer is no domain. The
+   * caller degrades to LinkedIn profiles and the people-search shortcut.
+   */
+  if (!jobUrl) return false;
+
+  // 1. The host the user themselves chose to visit. Job boards excluded: their
+  //    host says nothing about the employer.
+  const host = hostFromUrl(jobUrl);
+  if (host && !isJobBoard(host) && (host === domain || host.endsWith(`.${domain}`))) return true;
+
+  /*
+   * 2. The domain agrees with the company name the user is being shown.
+   *
+   * The attacker controls the company name too, but controlling it defeats the
+   * deception: a posting that renames the employer to "Attacker Corp" no longer
+   * passes as Acme. This catches the case that matters — the user believes they
+   * are contacting Acme while the crawler is pointed somewhere else.
+   */
+  if (company) {
+    const key = companyKey(company);
+    const label = domain.split(".")[0] ?? "";
+    if (key.length >= 3 && label.length >= 3 && (key.includes(label) || label.includes(key))) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Both gates, in order, returning the reason so the caller can log it.
+ *
+ * Rejection is not an error: the caller falls back to the job URL's own host,
+ * and failing that the LinkedIn people-search shortcut. A bad domain costs the
+ * user email discovery, never the whole result.
+ */
+export function validateCompanyDomain(
+  raw: string | null | undefined,
+  context: { jobUrl?: string | null; pageText?: string | null; company?: string | null } = {},
+): DomainVerdict {
+  if (!raw) return { ok: false, domain: null, reason: "malformed" };
+
+  const { domain, reason } = checkDomainFormat(raw);
+  if (!domain) return { ok: false, domain: null, reason };
+
+  if (!isCorroboratedDomain(domain, context)) {
+    return { ok: false, domain: null, reason: "uncorroborated" };
+  }
+  return { ok: true, domain, reason: null };
+}
+
+/**
+ * Did this address actually occur in the text we fetched?
+ *
+ * A regression guard rather than a live defense: no model output path currently
+ * produces an email, and this keeps it that way. Checks the raw source and its
+ * tag-stripped form, so an address written as `a&#64;b.com` or split across
+ * markup still counts as present.
+ */
+export function emailAppearsInSource(email: string, source: string): boolean {
+  const needle = email.trim().toLowerCase();
+  if (!needle || !source) return false;
+  const haystack = source.toLowerCase();
+  return haystack.includes(needle) || stripHtml(haystack).includes(needle);
+}
+
+/**
+ * An address may only ship with the page it was found on.
+ *
+ * Deliberately not "every contact needs a source URL": a contact with no email
+ * is the normal LinkedIn-only case, including the guaranteed fallback that
+ * keeps a search from ever being a dead end. The invariant is narrower — an
+ * email without provenance is what gets discarded.
+ */
+export function hasTraceableEmail(contact: {
+  email?: string | null;
+  email_source_url?: string | null;
+}): boolean {
+  if (!contact.email) return true;
+  return Boolean(contact.email_source_url && contact.email_source_url.trim());
+}
+
+/** Hard ceiling on untrusted text handed to a model. */
+export function capUntrusted(text: string, max: number): string {
+  if (max <= 0 || !text) return "";
+  return text.length <= max ? text : `${text.slice(0, max)}\n…[truncated]`;
+}
+
+/**
+ * Wrap untrusted content in delimiters the model is told to treat as data.
+ *
+ * The weakest layer here, and worth being honest about: a determined injection
+ * can still talk its way past a prompt instruction. It earns its place by
+ * making the boundary explicit and by stripping any copy of the delimiter out
+ * of the content first — otherwise a posting could close the fence and write
+ * outside it, which is the one failure mode this can actually prevent.
+ */
+export function fenceUntrusted(text: string, label: string): string {
+  const open = `<<<${label}>>>`;
+  const close = `<<</${label}>>>`;
+  const scrubbed = (text ?? "").split(open).join(`(${label})`).split(close).join(`(/${label})`);
+  return `${open}\n${scrubbed}\n${close}`;
+}
+
 /** True when the local part looks like a recruiting inbox rather than a person. */
 export function classifyEmail(email: string): boolean {
   const local = email.split("@")[0]?.toLowerCase() ?? "";
