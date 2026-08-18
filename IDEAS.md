@@ -12,6 +12,46 @@
 
 <!-- Ideas deliberately turned down, each with the reasoning, so they don't get re-litigated later. -->
 
+### Recruiter emails from LinkedIn post bodies
+
+Recruiters commonly publish their own address in the body of a LinkedIn job
+post, inviting resumes directly — a genuinely public, genuinely high-value
+pattern that `crawlCompanyEmails` cannot reach, because it walks six paths on
+the company domain and surfaces team inboxes rather than named people.
+
+Measured before building, across 76 unique results from 8 real discovery
+queries including three specific to the company in question:
+
+|                                      | Count | Share  |
+| ------------------------------------ | ----- | ------ |
+| Profile URLs (`/in/`)                | 40    | 53%    |
+| **Post URLs** (`/posts/`, `/pulse/`) | **4** | **5%** |
+| Other LinkedIn (jobs, company pages) | 18    | 24%    |
+| **Snippets containing any email**    | **2** | **3%** |
+
+Post URLs are returned — the `/in/` filter currently discards them — so the
+plumbing is not the obstacle. The content is. None of the four posts was a
+recruiter publishing an address:
+
+- a company-page post, a CEO post, a hashtag marketing post, and an article
+
+And both emails that appeared were team inboxes of exactly the kind
+`crawlCompanyEmails` already returns: a disability-accommodations address from
+a `/jobs/view/` page, and a company switchboard from a non-LinkedIn site.
+
+The specific address that prompted this — a named recruiter's, known to be
+published in his own post bodies — **appeared zero times across three
+company-specific queries.**
+
+The structural reason: a snippet is a ~160-character truncation the search
+engine picks around the query terms. An address buried in a post body only
+surfaces if it happens to fall inside that window. Reaching it reliably means
+fetching the post, which is a new fetch path.
+
+**What would justify revisiting:** a source that returns post bodies rather
+than snippets. Gated on re-running the measurement above; if recruiter-authored
+addresses do not appear at a usable rate, the answer is still no.
+
 ### Alumni-based referral discovery (as a discovery mode)
 
 A second mode on `discoverReferrers` that requires a shared school between the
