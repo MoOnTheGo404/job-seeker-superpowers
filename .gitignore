@@ -34,3 +34,8 @@ npm-debug.log*
 pnpm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Eval cassettes: recorded third-party pages including recruiter names and
+# profile URLs. Local only — see evals/PLAN.md.
+evals/cassettes/
+evals/reports/
