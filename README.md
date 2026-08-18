@@ -117,7 +117,8 @@ fan-out is sized to stay under it (~40 worst case, far fewer once the search cac
 ```
 src/lib/discovery.parse.ts   Pure parsing — no network, no env, no clock. Unit tested.
 src/lib/discovery.server.ts  Search and crawl. Server-only.
-src/lib/recruiters.functions.ts  The three server functions: analyze, discover, draft.
+src/lib/recruiters.functions.ts  Four server functions: analyze, discover, refer, draft.
+src/lib/security-headers.ts  CSP and friends, applied to every response.
 src/lib/ai.server.ts         Gemini client, retry and error mapping.
 src/components/win95/        Window chrome: title bars, group boxes, status bars.
 src/styles.css               The Win95 design system — it is all bevels.
@@ -130,6 +131,39 @@ quietly, and keeping them pure means they can be tested directly.
 
 ## Database
 
-Four tables — `profiles`, `job_targets`, `contacts`, `outreach` — each with row-level security
-scoping rows to their owning user. Recruiters and referrers share the `contacts` table, separated
-by `contact_type`.
+Six tables. Four hold user data — `profiles`, `job_targets`, `contacts`, `outreach` — each with
+row-level security scoping rows to their owning user. Recruiters and referrers share the
+`contacts` table, separated by `contact_type`. Two more support the free tiers: `search_cache`,
+shared across users with a 7-day TTL, and `rate_limits`, strictly per-user.
+
+## Security
+
+Job postings are written by strangers and go to a language model, so the untrusted-text boundary
+gets explicit treatment: third-party content is fenced and length-capped, and every domain the
+model returns is validated before anything crawls it.
+
+The interesting part is what does **not** work. Requiring a returned email to appear in the
+fetched page passes the real attack untouched — the model never emits an address, and the
+exploitable path is it naming the wrong site as the employer, after which real addresses get
+harvested from a page the attacker controls. [SECURITY-NOTES.md](SECURITY-NOTES.md) has the full
+account, including what an attacker can still do.
+
+## Origin
+
+This began as a Lovable-generated scaffold, and the scaffold was a working application rather
+than a starter template — three of the four server functions, a discovery pipeline, four tables
+with RLS and all four routes already existed in the first commit. What changed since is the part
+that decides whether software survives contact with reality.
+
+Rough attribution, measured with `git blame` against that first commit rather than estimated:
+
+|                  | Count | Note                                     |
+| ---------------- | ----- | ---------------------------------------- |
+| Commits          | 30    |                                          |
+| Tests            | 80    | The scaffold had none                    |
+| Pure parsers     | 24    | 15 written here, 9 inherited             |
+| Server functions | 4     | `discoverReferrers` written from scratch |
+| Tables           | 6     | 4 inherited, 2 added                     |
+
+Excluding the 46 vendored shadcn/ui components, about 60% of the current tree was written here.
+Including them, about 34%.
