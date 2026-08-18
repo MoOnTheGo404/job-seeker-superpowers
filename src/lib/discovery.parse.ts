@@ -606,6 +606,72 @@ export function fenceUntrusted(text: string, label: string): string {
   return `${open}\n${scrubbed}\n${close}`;
 }
 
+/* ============================================================================
+ * Alumni shortcuts.
+ *
+ * Not discovery. Shared school is the strongest predictor of a referral reply,
+ * but the data to act on it is not in what this app fetches: of 45 profiles
+ * sampled from real search results, 16% carried any education string at all,
+ * and that string is a single entry rather than a history. Filtering on it
+ * would report "no alumni" when the truth is "unknown", which is the failure
+ * mode this codebase spends most of its effort avoiding.
+ *
+ * So this builds a link into the search that does work, and promises nothing
+ * more. See IDEAS.md for the killed discovery feature and what would justify
+ * revisiting it.
+ * ========================================================================= */
+
+/** Longest school name accepted, to keep a pasted essay out of a URL. */
+const MAX_SCHOOL_LENGTH = 80;
+
+/**
+ * Split the user's schools field into individual institutions.
+ *
+ * One per line, not comma-separated: "University of California, San Diego"
+ * contains a comma and would shatter into two useless fragments, and that is
+ * exactly the kind of name this needs to survive.
+ *
+ * Abbreviations are not derived from full names. "UCSD" is not mechanically
+ * recoverable from "University of California, San Diego" without a lookup
+ * table covering every university on earth, and a wrong expansion is worse
+ * than none. A user who searches by both forms adds both lines.
+ */
+export function parseSchools(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const piece of raw.split(/\r?\n/)) {
+    const school = piece.replace(/\s+/g, " ").trim();
+    if (!school || school.length > MAX_SCHOOL_LENGTH) continue;
+    const key = school.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(school);
+  }
+  return out;
+}
+
+/**
+ * LinkedIn people search for one school's alumni at one company.
+ *
+ * Keyword-based rather than LinkedIn's structured `schoolFilter`, which keys on
+ * numeric institution IDs this app has no way to resolve. Keywords are what a
+ * person types by hand, and they work without a lookup.
+ *
+ * One school per URL: LinkedIn's handling of OR inside keywords is inconsistent
+ * enough that a user with two degrees is better served by two reliable links
+ * than one clever one.
+ */
+export function linkedInAlumniSearchUrl(company: string, school: string): string {
+  const terms = [company, school]
+    .map((part) => (part ?? "").replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .join(" ");
+  return `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(
+    terms,
+  )}&origin=GLOBAL_SEARCH_HEADER`;
+}
+
 /** True when the local part looks like a recruiting inbox rather than a person. */
 export function classifyEmail(email: string): boolean {
   const local = email.split("@")[0]?.toLowerCase() ?? "";

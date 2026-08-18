@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import {
@@ -21,6 +21,7 @@ import { Win95Window, GroupBox } from "@/components/win95/Window";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { discoverContacts, discoverReferrers, draftOutreach } from "@/lib/recruiters.functions";
+import { linkedInAlumniSearchUrl, parseSchools } from "@/lib/discovery.parse";
 
 export const Route = createFileRoute("/target/$id")({
   head: () => ({
@@ -46,6 +47,7 @@ export const Route = createFileRoute("/target/$id")({
 const STATUSES = ["researching", "contacted", "applied", "interviewing", "closed"];
 
 const BACKGROUND_KEY = "reachpoint:applicant-background";
+const SCHOOLS_KEY = "reachpoint:applicant-schools";
 
 /**
  * The applicant's own background, the only facts a draft is allowed to state
@@ -56,22 +58,38 @@ const BACKGROUND_KEY = "reachpoint:applicant-background";
  * should follow the user between devices.
  */
 function useApplicantBackground() {
-  const [background, setBackground] = useState("");
+  return useLocalField(BACKGROUND_KEY);
+}
+
+/**
+ * The applicant's schools, one per line.
+ *
+ * Stored separately from the free-text background rather than parsed out of
+ * it: guessing which words in a sentence are an institution is exactly the
+ * kind of inference that produces confident wrong answers. Same localStorage
+ * dependency as the background, and it moves server-side with it.
+ */
+function useApplicantSchools() {
+  return useLocalField(SCHOOLS_KEY);
+}
+
+function useLocalField(key: string) {
+  const [value, setValue] = useState("");
   const hydrated = useRef(false);
 
   // Read after mount: localStorage does not exist during SSR, so seeding
   // useState from it directly would desync the server and client renders.
   useEffect(() => {
-    setBackground(localStorage.getItem(BACKGROUND_KEY) ?? "");
+    setValue(localStorage.getItem(key) ?? "");
     hydrated.current = true;
-  }, []);
+  }, [key]);
 
   useEffect(() => {
     // Guarded so the pre-hydration empty string can't wipe a stored value.
-    if (hydrated.current) localStorage.setItem(BACKGROUND_KEY, background);
-  }, [background]);
+    if (hydrated.current) localStorage.setItem(key, value);
+  }, [key, value]);
 
-  return [background, setBackground] as const;
+  return [value, setValue] as const;
 }
 
 /** Win95 combo box: sunken field plus a beveled drop-down arrow on the right. */
@@ -116,6 +134,8 @@ function TargetPage() {
   const runDiscovery = useServerFn(discoverContacts);
   const runReferrerDiscovery = useServerFn(discoverReferrers);
   const [background, setBackground] = useApplicantBackground();
+  const [schools, setSchools] = useApplicantSchools();
+  const schoolList = useMemo(() => parseSchools(schools), [schools]);
 
   useEffect(() => {
     if (!loading && !user) navigate({ to: "/auth" });
@@ -294,7 +314,53 @@ function TargetPage() {
                 onChange={(e) => setBackground(e.target.value)}
                 placeholder="e.g. 4 years backend Go at a fintech; led the payments migration; graduating MSc CS June 2026…"
               />
+
+              <label
+                htmlFor="applicant-schools"
+                className="mt-3 mb-1 block text-[11px] font-bold text-black"
+              >
+                Your schools — one per line
+              </label>
+              <p className="mb-2 text-[11px] text-black">
+                Used only to build alumni search links below. Add abbreviations as their own line if
+                you use them, for example “UCSD” under “University of California, San Diego” — they
+                are never guessed for you.
+              </p>
+              <Textarea
+                id="applicant-schools"
+                rows={3}
+                value={schools}
+                onChange={(e) => setSchools(e.target.value)}
+                placeholder={"University of California, San Diego\nUCSD"}
+              />
             </GroupBox>
+
+            {schoolList.length > 0 && target.data?.company && (
+              <GroupBox label="Alumni search" className="bg-w95-face">
+                <p className="mb-2 text-[11px] text-black">
+                  A shared school is the strongest opener you have. These open LinkedIn people
+                  search for {target.data.company}, filtered by each school you listed — one link
+                  per school, because LinkedIn handles a single term far more reliably.
+                </p>
+                <ul className="space-y-1">
+                  {schoolList.map((school) => {
+                    const company = target.data?.company ?? "";
+                    return (
+                      <li key={school}>
+                        <a
+                          className="text-[11px] text-w95-title underline focus-visible:outline focus-visible:outline-1 focus-visible:outline-dotted"
+                          href={linkedInAlumniSearchUrl(company, school)}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                        >
+                          {company} alumni from {school}
+                        </a>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </GroupBox>
+            )}
 
             {busy && (
               <div className="bevel-in-thin bg-w95-info px-3 py-2 text-[11px] text-black">

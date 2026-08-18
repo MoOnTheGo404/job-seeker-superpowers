@@ -8,6 +8,8 @@ import {
   fenceUntrusted,
   hasTraceableEmail,
   isCorroboratedDomain,
+  linkedInAlumniSearchUrl,
+  parseSchools,
   validateCompanyDomain,
   hostFromUrl,
   isJobBoard,
@@ -567,5 +569,69 @@ describe("capUntrusted", () => {
     const out = capUntrusted("x".repeat(50), 10);
     expect(out.startsWith("x".repeat(10))).toBe(true);
     expect(out).toContain("[truncated]");
+  });
+});
+
+describe("parseSchools", () => {
+  it("takes one school per line and trims each", () => {
+    expect(parseSchools("Stanford University\n  UC San Diego \nCornell")).toEqual([
+      "Stanford University",
+      "UC San Diego",
+      "Cornell",
+    ]);
+  });
+
+  it("keeps a name containing a comma intact", () => {
+    // The reason lines beat commas: this name would otherwise shatter into
+    // "University of California" and "San Diego", neither of which is a school.
+    expect(parseSchools("University of California, San Diego")).toEqual([
+      "University of California, San Diego",
+    ]);
+  });
+
+  it("keeps a full name and its abbreviation as separate entries", () => {
+    // Abbreviations are never derived from full names, so a user who wants
+    // both adds both lines.
+    expect(parseSchools("University of California, San Diego\nUCSD")).toEqual([
+      "University of California, San Diego",
+      "UCSD",
+    ]);
+  });
+
+  it("drops blanks, duplicates and overlong entries", () => {
+    expect(parseSchools("Cornell\n\n cornell \nCornell")).toEqual(["Cornell"]);
+    expect(parseSchools("x".repeat(200))).toEqual([]);
+  });
+
+  it("returns nothing for empty input", () => {
+    expect(parseSchools("")).toEqual([]);
+    expect(parseSchools(null)).toEqual([]);
+    expect(parseSchools(undefined)).toEqual([]);
+  });
+});
+
+describe("linkedInAlumniSearchUrl", () => {
+  it("puts company and school into the keywords", () => {
+    const url = linkedInAlumniSearchUrl("Stripe", "Stanford University");
+    expect(url).toBe(
+      "https://www.linkedin.com/search/results/people/" +
+        "?keywords=Stripe%20Stanford%20University&origin=GLOBAL_SEARCH_HEADER",
+    );
+  });
+
+  it("encodes punctuation and diacritics rather than emitting them raw", () => {
+    const url = linkedInAlumniSearchUrl("Acme, Inc.", "Université de Montréal");
+    expect(url).toContain("Acme%2C%20Inc.");
+    expect(url).toContain("Universit%C3%A9%20de%20Montr%C3%A9al");
+    expect(url).not.toContain(" ");
+  });
+
+  it("collapses stray whitespace", () => {
+    expect(linkedInAlumniSearchUrl("  Stripe  ", "  MIT  ")).toContain("keywords=Stripe%20MIT");
+  });
+
+  it("stays a valid URL when a part is missing", () => {
+    expect(linkedInAlumniSearchUrl("Stripe", "")).toContain("keywords=Stripe&");
+    expect(() => new URL(linkedInAlumniSearchUrl("", ""))).not.toThrow();
   });
 });
