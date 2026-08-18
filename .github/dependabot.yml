@@ -1,0 +1,43 @@
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+    commit-message:
+      prefix: deps
+      prefix-development: deps-dev
+    groups:
+      # One PR for the routine patch/minor churn. Dozens of separate PRs is how
+      # dependency updates get ignored, and an ignored update is not an update.
+      minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # Majors land as their own PRs via the group exclusion above, but these
+      # three move as a set — updating one alone produced the version skew that
+      # broke the Cloudflare build with a module-initialisation error.
+      - dependency-name: "@tanstack/react-start"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@tanstack/react-router"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@tanstack/router-plugin"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+    labels:
+      - dependencies
