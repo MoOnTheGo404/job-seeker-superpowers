@@ -159,7 +159,7 @@ Rough attribution, measured with `git blame` against that first commit rather th
 
 |                  | Count | Note                                     |
 | ---------------- | ----- | ---------------------------------------- |
-| Commits          | 30    |                                          |
+| Commits          | 30+   | Counted at time of writing               |
 | Tests            | 80    | The scaffold had none                    |
 | Pure parsers     | 24    | 15 written here, 9 inherited             |
 | Server functions | 4     | `discoverReferrers` written from scratch |
