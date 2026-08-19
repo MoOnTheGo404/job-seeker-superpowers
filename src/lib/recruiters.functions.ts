@@ -48,7 +48,13 @@ export interface AnalyzedJob {
 export async function analyzeJobCore(jobUrl?: string, jobText?: string): Promise<AnalyzedJob> {
   const { askAI, parseJsonBlock } = await import("./ai.server");
   const { hostFromUrl, isJobBoard } = await import("./discovery.server");
-  const { capUntrusted, fenceUntrusted, validateCompanyDomain } = await import("./discovery.parse");
+  const {
+    capUntrusted,
+    checkDomainFormat,
+    fenceUntrusted,
+    isCompanyOwnedHost,
+    validateCompanyDomain,
+  } = await import("./discovery.parse");
 
   let pageText = jobText ?? "";
   if (jobUrl) {
@@ -171,9 +177,35 @@ export async function analyzeJobCore(jobUrl?: string, jobText?: string): Promise
     }
   }
 
+  /*
+   * The fallback gets validated too. It used to bypass the gate entirely, which
+   * is how a Settlyfe posting hosted at careers.tufts.edu resolved Tufts as the
+   * employer and sent the crawler to a university looking for recruiters — the
+   * eval logged one rejection across nine fixtures because this road went round
+   * it.
+   *
+   * Corroboration here cannot use the ordinary route: the candidate domain *is*
+   * the job URL's host, so "does it match the job URL" answers itself. The
+   * question with content is whether the company's name appears in the host.
+   */
   if (!parsed.company_domain && jobUrl) {
     const host = hostFromUrl(jobUrl);
-    if (host && !isJobBoard(host)) parsed.company_domain = host;
+    if (host && !isJobBoard(host)) {
+      const { domain, reason } = checkDomainFormat(host);
+      if (domain && isCompanyOwnedHost(domain, parsed.company)) {
+        parsed.company_domain = domain;
+      } else {
+        console.warn(
+          "[domain-rejected]",
+          JSON.stringify({
+            domain: host,
+            reason: reason ?? "host_not_company",
+            sourceUrl: jobUrl,
+            company: parsed.company ?? null,
+          }),
+        );
+      }
+    }
   }
   if (!parsed.company)
     throw new Error("Couldn't identify the company. Try pasting the full job description.");

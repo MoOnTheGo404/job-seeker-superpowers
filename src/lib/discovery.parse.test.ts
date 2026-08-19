@@ -14,6 +14,7 @@ import {
   extractEmails,
   fenceUntrusted,
   hasTraceableEmail,
+  isCompanyOwnedHost,
   isCorroboratedDomain,
   linkedInAlumniSearchUrl,
   parseSchools,
@@ -969,5 +970,35 @@ describe("looksUnreadable", () => {
   it("accepts long prose that is not obviously a posting", () => {
     // No job keywords, but plenty of text — not our call to reject.
     expect(looksUnreadable("We build things. ".repeat(40))).toBe(false);
+  });
+});
+
+describe("isCompanyOwnedHost", () => {
+  it("accepts a host the company plainly owns", () => {
+    expect(isCompanyOwnedHost("jobs.apple.com", "Apple")).toBe(true);
+    expect(isCompanyOwnedHost("careers.dexcom.com", "Dexcom")).toBe(true);
+    expect(isCompanyOwnedHost("jobs.bechtel.com", "Bechtel Corporation")).toBe(true);
+  });
+
+  it("rejects a university board hosting someone else's posting", () => {
+    // Measured in the eval: settlyfe-tufts resolved to careers.tufts.edu and
+    // the gate never saw it, because the fallback bypassed validation.
+    expect(isCompanyOwnedHost("careers.tufts.edu", "Settlyfe Inc.")).toBe(false);
+    expect(isCompanyOwnedHost("capd.mit.edu", "ProMazo")).toBe(false);
+  });
+
+  it("still accepts a university hosting its own posting", () => {
+    expect(isCompanyOwnedHost("careers.tufts.edu", "Tufts University")).toBe(true);
+  });
+
+  it("ignores hosting labels so the owner is what gets compared", () => {
+    // "careers" and "jobs" describe a role, not an organisation.
+    expect(isCompanyOwnedHost("careers.example.com", "Careers Inc")).toBe(false);
+  });
+
+  it("returns false rather than throwing on missing input", () => {
+    expect(isCompanyOwnedHost("", "Apple")).toBe(false);
+    expect(isCompanyOwnedHost("jobs.apple.com", null)).toBe(false);
+    expect(isCompanyOwnedHost("jobs.apple.com", "")).toBe(false);
   });
 });

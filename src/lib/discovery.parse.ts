@@ -639,6 +639,70 @@ export function checkDomainFormat(raw: string): {
   return { domain: bare, reason: null };
 }
 
+/**
+ * Labels that describe a hosting role rather than an organisation.
+ *
+ * `careers.tufts.edu` is Tufts; `jobs.apple.com` is Apple. Skipping these is
+ * what lets the check look at who actually owns the host.
+ */
+const HOSTING_LABELS = new Set([
+  "www",
+  "jobs",
+  "job",
+  "jobboards",
+  "job-boards",
+  "boards",
+  "careers",
+  "career",
+  "apply",
+  "recruiting",
+  "recruit",
+  "talent",
+  "hiring",
+  "hire",
+  "work",
+  "join",
+  "portal",
+  "apps",
+  "app",
+  "my",
+  "secure",
+  "com",
+  "org",
+  "net",
+  "edu",
+  "gov",
+  "io",
+  "co",
+]);
+
+/**
+ * Does this host plausibly belong to the company itself?
+ *
+ * Used for the job URL fallback, which cannot be corroborated the ordinary way:
+ * the candidate domain *is* the job URL's host, so asking "does it match the
+ * job URL" answers itself. Asking whether the company's name appears in the
+ * host is the question with actual content.
+ *
+ * Checks every label, not just the first, because the owner is rarely the
+ * leftmost one — `jobs.apple.com` is Apple's, `careers.tufts.edu` is Tufts'.
+ * That is exactly how a university board gets caught: nothing in
+ * `careers.tufts.edu` says Settlyfe.
+ */
+export function isCompanyOwnedHost(host: string, company: string | null | undefined): boolean {
+  if (!host || !company) return false;
+  const key = companyKey(company);
+  if (key.length < 3) return false;
+
+  for (const label of host.toLowerCase().split(".")) {
+    if (HOSTING_LABELS.has(label)) continue;
+    const clean = label.replace(/[^a-z0-9]/g, "");
+    if (clean.length < 3) continue;
+    if (key.includes(clean) || clean.includes(key)) return true;
+  }
+  return false;
+}
+
 /** Reduce a name to comparable letters, so "Acme, Inc." meets "acme". */
 function companyKey(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]/g, "");
