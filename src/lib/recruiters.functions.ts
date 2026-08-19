@@ -266,7 +266,7 @@ export const discoverContacts = createServerFn({ method: "POST" })
       verifyDomain,
     } = await import("./discovery.server");
     const {
-      EMPLOYER_UNCONFIRMED,
+      confirmedOnly,
       countryFromJobLocation,
       countryFromLinkedInUrl,
       countryMismatchLabel,
@@ -288,7 +288,13 @@ export const discoverContacts = createServerFn({ method: "POST" })
     // long before the handler could return.
     // Four, not six: each profile costs a search plus page fetches, and the
     // per-invocation request budget on serverless hosts is finite.
-    const topProfiles = profiles.slice(0, 4);
+    /*
+     * Confirmed people only. An unconfirmed profile is not weak evidence that
+     * someone works here, it is no evidence — and a caveat on every card is not
+     * a caveat, it is noise. When nothing confirms, the !contacts.length guard
+     * below emits the people-search shortcut, which is a real next step.
+     */
+    const topProfiles = confirmedOnly(profiles).slice(0, 4);
     const personEmails = await Promise.all(
       topProfiles.map((profile) =>
         // One profile failing to resolve shouldn't sink the whole discovery run.
@@ -310,12 +316,6 @@ export const discoverContacts = createServerFn({ method: "POST" })
           personEmail
             ? "Email found published on a public web page (link included)."
             : "No publicly published email found — reach out on LinkedIn instead.",
-          /*
-           * State it rather than leave a blank. A card with no employer gave no
-           * way to tell whether the person was even at the target company, and
-           * silence read as "not there" when it only ever meant "not stated".
-           */
-          profile.employerConfirmed ? "" : `${EMPLOYER_UNCONFIRMED} — ${target.company}`,
           /*
            * States the signal, not a residence. A ccTLD says where a profile
            * was registered and nothing else — the person may well work the
@@ -378,7 +378,9 @@ export const discoverContacts = createServerFn({ method: "POST" })
         email_source_url: null,
         email_status: "not_found",
         notes:
-          "No verifiable public contact found. Use the LinkedIn people search below to reach the team directly.",
+          `Nobody could be confirmed as working at ${target.company}. Results that don't name the ` +
+          "employer are left out rather than shown with a caveat. Use the LinkedIn people search " +
+          "below to reach the team directly.",
       });
     }
 
@@ -440,12 +442,8 @@ export const discoverReferrers = createServerFn({ method: "POST" })
 
     const { createSearchCache } = await import("./cache.server");
     const { findReferralProfiles, linkedInPeopleSearchUrl } = await import("./discovery.server");
-    const {
-      EMPLOYER_UNCONFIRMED,
-      countryFromJobLocation,
-      countryFromLinkedInUrl,
-      countryMismatchLabel,
-    } = await import("./discovery.parse");
+    const { confirmedOnly, countryFromJobLocation, countryFromLinkedInUrl, countryMismatchLabel } =
+      await import("./discovery.parse");
     const jobCountry = countryFromJobLocation(target.location);
 
     const profiles = await findReferralProfiles(
@@ -456,7 +454,7 @@ export const discoverReferrers = createServerFn({ method: "POST" })
       createSearchCache(supabase),
     );
 
-    const contacts: DiscoveredContact[] = profiles.map((profile) => ({
+    const contacts: DiscoveredContact[] = confirmedOnly(profiles).map((profile) => ({
       name: profile.name,
       title: profile.title || null,
       linkedin_url: profile.linkedinUrl,
@@ -466,7 +464,6 @@ export const discoverReferrers = createServerFn({ method: "POST" })
       email_status: "not_found",
       notes: [
         "Potential referrer — senior in this team. Ask on LinkedIn: a referral request is a favour, and cold-emailing someone's work address for one tends to land badly.",
-        profile.employerConfirmed ? "" : `${EMPLOYER_UNCONFIRMED} — ${target.company}`,
         countryMismatchLabel(countryFromLinkedInUrl(profile.linkedinUrl), jobCountry) ?? "",
       ]
         .filter(Boolean)
@@ -486,7 +483,9 @@ export const discoverReferrers = createServerFn({ method: "POST" })
         email_source_url: null,
         email_status: "not_found",
         notes:
-          "Nobody senior enough surfaced for this team. Use the LinkedIn people search below and look for someone you share a school, employer or community with.",
+          `Nobody could be confirmed as working at ${target.company} for this team. Use the ` +
+          "LinkedIn people search below and look for someone you share a school, employer or " +
+          "community with.",
       });
     }
 

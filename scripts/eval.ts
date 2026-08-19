@@ -19,7 +19,7 @@ import {
   searchPersonEmail,
   verifyDomain,
 } from "../src/lib/discovery.server";
-import { isRecruiterTitle, type FoundProfile } from "../src/lib/discovery.parse";
+import { confirmedOnly, isRecruiterTitle, type FoundProfile } from "../src/lib/discovery.parse";
 
 const CASSETTES = "evals/cassettes";
 const FIXTURES = "evals/fixtures";
@@ -266,12 +266,12 @@ function buildReport(results: Result[]): string {
     const a = r.analyzed;
     L.push(
       `| \`${r.fixture.id}\` | ${r.fixture.sizeBand} | ${a?.company ?? "—"} | ${
-        a?.role_title ?? "—"
-      } | ${a?.department ?? "—"} | ${a?.location ?? "—"} | ${
-        r.resolvedDomain ?? "**null**"
-      } | ${r.recruiters.length} | ${r.personEmails.length} | ${r.emails.length} | ${
-        r.referrers.length
-      } |`,
+        a?.department ?? "—"
+      } | ${a?.location ?? "—"} | ${r.resolvedDomain ?? "**null**"} | ${
+        r.recruiters.length
+      } | ${confirmedOnly(r.recruiters).length} | ${r.personEmails.length} | ${
+        r.emails.length
+      } | ${r.referrers.length} | ${confirmedOnly(r.referrers).length} |`,
     );
   }
   L.push("");
@@ -337,6 +337,24 @@ function buildReport(results: Result[]): string {
     );
   }
   L.push(`| **all** | **${totR}** | **${totHit}** | **${pct(totHit, totR)}** |`);
+  L.push("");
+
+  L.push("## Employer confirmation");
+  L.push("");
+  L.push("Results are only shown when the source places the person at the company.");
+  L.push("These are the counts that survive that rule.");
+  L.push("");
+  L.push("| id | recruiters kept | referrers kept | shown at all? |");
+  L.push("| --- | --- | --- | --- |");
+  for (const r of results) {
+    const cr = confirmedOnly(r.recruiters).length;
+    const cf = confirmedOnly(r.referrers).length;
+    L.push(
+      `| \`${r.fixture.id}\` | ${cr}/${r.recruiters.length} | ${cf}/${r.referrers.length} | ${
+        cr + cf === 0 ? "**no — fallback only**" : "yes"
+      } |`,
+    );
+  }
   L.push("");
 
   L.push("## Country hints");

@@ -1212,6 +1212,27 @@ export function confirmsEmployer(text: string, company: string | null | undefine
   return lead.length >= 3 && haystack.includes(lead);
 }
 
+/**
+ * Keep only the people the source actually places at this company.
+ *
+ * A real run against a two-person startup returned four recruiters and eight
+ * referrers, every one of them labelled "company not confirmed in source" —
+ * people at Peloton, State Street, Google, Meta and a staffing firm, one with a
+ * genuine published address belonging to none of them. Rendering those with a
+ * caveat still renders them, and a caveat is not a defence when every card
+ * carries it.
+ *
+ * An unconfirmed profile is not evidence of anything. Dropping the lot and
+ * saying so is the honest output, and the caller falls through to the LinkedIn
+ * people-search shortcut, which is a real next step rather than twelve
+ * strangers.
+ */
+export function confirmedOnly<T extends { employerConfirmed: boolean }>(
+  profiles: readonly T[],
+): T[] {
+  return profiles.filter((p) => p.employerConfirmed);
+}
+
 /** Shown in place of an employer when the source never confirmed one. */
 export const EMPLOYER_UNCONFIRMED = "company not confirmed in source";
 

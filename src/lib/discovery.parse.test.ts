@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   capUntrusted,
   checkDomainFormat,
+  confirmedOnly,
   confirmsEmployer,
   countryFromJobLocation,
   countryFromLinkedInUrl,
@@ -1000,5 +1001,28 @@ describe("isCompanyOwnedHost", () => {
     expect(isCompanyOwnedHost("", "Apple")).toBe(false);
     expect(isCompanyOwnedHost("jobs.apple.com", null)).toBe(false);
     expect(isCompanyOwnedHost("jobs.apple.com", "")).toBe(false);
+  });
+});
+
+describe("confirmedOnly", () => {
+  const p = (name: string, employerConfirmed: boolean) => ({ name, employerConfirmed });
+
+  it("drops everyone the source did not place at the company", () => {
+    const out = confirmedOnly([p("real", true), p("stranger", false)]);
+    expect(out.map((x) => x.name)).toEqual(["real"]);
+  });
+
+  it("returns nothing when nothing is confirmed", () => {
+    // The Settlyfe run: 12 results, 0 confirmed. The honest answer is none,
+    // not twelve people at Peloton and State Street with a caveat attached.
+    expect(confirmedOnly([p("a", false), p("b", false), p("c", false)])).toEqual([]);
+  });
+
+  it("keeps everything when everything is confirmed", () => {
+    expect(confirmedOnly([p("a", true), p("b", true)])).toHaveLength(2);
+  });
+
+  it("handles an empty list", () => {
+    expect(confirmedOnly([])).toEqual([]);
   });
 });
