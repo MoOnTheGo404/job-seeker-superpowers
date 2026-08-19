@@ -350,9 +350,9 @@ export async function findLinkedInProfiles(
   }
 
   /*
-   * Country is a tiebreaker, never a gate. Nothing is dropped; a mismatch just
-   * sorts below a match, and unknown sits between them. sort is stable, so
-   * candidates with equal delta keep the order search returned them in.
+   * Confirmed people first; sort is stable, so everything else keeps the order
+   * search returned it in. The country delta is computed for logging only —
+   * see logCountryMix for why it no longer touches the ordering.
    */
   const jobCountry = countryFromJobLocation(jobLocation);
   const ranked = [...seen.values()]
@@ -364,19 +364,22 @@ export async function findLinkedInProfiles(
      * happened when the small-company fallback appended its results and the
      * slice below cut them straight off again.
      */
-    .sort(
-      (a, b) => Number(b.p.employerConfirmed) - Number(a.p.employerConfirmed) || b.delta - a.delta,
-    );
+    .sort((a, b) => Number(b.p.employerConfirmed) - Number(a.p.employerConfirmed));
   logCountryMix("discover_contacts", ranked, jobCountry);
   return ranked.map(({ p }) => p).slice(0, 8);
 }
 
 /**
- * Report how the country hint actually landed this run.
+ * Report how the country hint lands, without letting it change any ordering.
  *
- * The signal is a weak proxy on trial, so the counts are logged rather than
- * assumed: without them there is no way to tell later whether it is helping or
- * merely reordering noise.
+ * The weight was removed after the eval measured it: across 132 candidates,
+ * `same` was 0. Not rare — impossible. US profiles carry no ccTLD, so for a US
+ * requisition the reward branch is unreachable by construction and the signal
+ * could only ever demote, which is exactly what the comment on the weight
+ * warned about before there was evidence either way.
+ *
+ * The counts are still logged. If the fixture set ever gains non-US postings
+ * the question can be reopened against data instead of intuition.
  */
 function logCountryMix(
   fn: string,
@@ -490,8 +493,8 @@ export async function findReferralProfiles(
   }
 
   /*
-   * Seniority rank runs 1..13 and a department match doubles it, so a ±1
-   * country delta reorders ties without ever inverting a real gap.
+   * Confirmed first, then seniority. The country delta is computed for the log
+   * and deliberately excluded from the sort — see logCountryMix.
    */
   const jobCountry = countryFromJobLocation(jobLocation);
   const ranked = [...seen.values()].map((entry) => ({
@@ -505,8 +508,7 @@ export async function findReferralProfiles(
       (a, b) =>
         // Same reasoning as findLinkedInProfiles: unconfirmed cannot be shown,
         // so it must not occupy the cap.
-        Number(b.employerConfirmed) - Number(a.employerConfirmed) ||
-        b.score + b.delta - (a.score + a.delta),
+        Number(b.employerConfirmed) - Number(a.employerConfirmed) || b.score - a.score,
     )
     .slice(0, 8)
     .map(({ score: _score, delta: _delta, ...profile }) => profile);

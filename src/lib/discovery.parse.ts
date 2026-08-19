@@ -1070,20 +1070,25 @@ export function countryFromJobLocation(location: string | null | undefined): Cou
 /**
  * Rank contribution from country agreement. Same +1, unknown 0, different -1.
  *
- * Deliberately ±1 against a seniority rank that runs 1..13 and a department
- * match that doubles the score. It reorders candidates who are otherwise tied
- * and cannot invert a seniority or department gap.
+ * **No longer applied to any ranking.** Retained because the eval logs its
+ * distribution, and a signal worth reopening later needs its measurement to
+ * keep accruing.
  *
- * Kept this weak on purpose, and the reason is worth stating plainly: in the
- * pipeline this was built from, *both* contacts known to be relevant were
- * country-mismatched — a UK-based TA partner on a US requisition, and an
- * India-registered recruiter staffing Arizona. A ccTLD separates where a
- * profile was registered from nothing else. It is a weak proxy under test, not
- * a validated signal, and anything heavier would demote the two people who
- * actually mattered.
+ * It was removed after the fixture set measured it: across 132 candidates,
+ * `same` was 0. Not rare — unreachable. LinkedIn only exposes a ccTLD for
+ * non-US profiles, so on a US requisition nothing can ever match and the
+ * weight could only demote. The comment that shipped with it said as much
+ * before there was evidence: both contacts known to be relevant in the
+ * pipeline it came from were country-mismatched, a UK-based TA partner on a US
+ * req and an India-registered recruiter staffing Arizona.
  *
- * Unknown scores 0 rather than -1. Two thirds of profiles carry no ccTLD, and
- * penalising silence would rank the majority below a signal they never had.
+ * Reading bare `www.` as a US hint was the alternative and is worse: it cannot
+ * be verified from anything fetched here, and it would turn a 93% neutral
+ * bucket into a reward, leaving the penalty on the remaining 7% as the only
+ * discriminating effect — a nationality filter wearing a tiebreaker's clothes.
+ *
+ * What would justify reviving it: non-US postings in the fixture set, and a
+ * measured `same` count that is not zero.
  */
 export function countryRankDelta(candidate: CountryHint, job: CountryHint): -1 | 0 | 1 {
   if (!candidate || !job) return 0;
