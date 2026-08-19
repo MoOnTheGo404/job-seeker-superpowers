@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   capUntrusted,
   checkDomainFormat,
+  companyPeopleQueries,
   confirmedOnly,
   confirmsEmployer,
   countryFromJobLocation,
@@ -1024,5 +1025,31 @@ describe("confirmedOnly", () => {
 
   it("handles an empty list", () => {
     expect(confirmedOnly([])).toEqual([]);
+  });
+});
+
+describe("companyPeopleQueries", () => {
+  it("leads with the bare company form that measured best", () => {
+    // "<company> Inc employees" returned 1 profile and 0 confirmed; the plain
+    // form returned 7 and all 7 confirmed.
+    expect(companyPeopleQueries("Settlyfe")[0]).toBe("Settlyfe linkedin.com/in");
+  });
+
+  it("adds a role-qualified form for companies named after ordinary words", () => {
+    // "Warp" alone surfaced one profile; adding the role surfaced three.
+    expect(companyPeopleQueries("Warp", "Software Engineer")).toEqual([
+      "Warp linkedin.com/in",
+      "Warp Software Engineer linkedin.com/in",
+    ]);
+  });
+
+  it("omits the role form when there is no role", () => {
+    expect(companyPeopleQueries("Settlyfe", null)).toHaveLength(1);
+    expect(companyPeopleQueries("Settlyfe", "  ")).toHaveLength(1);
+  });
+
+  it("returns nothing without a company", () => {
+    expect(companyPeopleQueries("")).toEqual([]);
+    expect(companyPeopleQueries("   ", "Engineer")).toEqual([]);
   });
 });

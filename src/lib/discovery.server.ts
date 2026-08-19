@@ -13,6 +13,8 @@ import {
   isJobBoard,
   matchesPerson,
   normalizeDomain,
+  companyPeopleQueries,
+  confirmedOnly,
   confirmsEmployer,
   countryFromJobLocation,
   countryFromLinkedInUrl,
@@ -314,6 +316,40 @@ export async function findLinkedInProfiles(
     }
   }
   /*
+   * Nobody confirmed at this company? Ask who works here at all.
+   *
+   * The title queries above assume a recruiter exists. At a small company none
+   * does, and the search falls through to generic title matches at unrelated
+   * employers — twelve strangers instead of the four people who actually work
+   * there. Only runs when the titled search confirmed nobody, so it costs
+   * nothing at companies where the ordinary path works.
+   */
+  if (confirmedOnly([...seen.values()]).length === 0) {
+    for (const query of companyPeopleQueries(company, roleTitle)) {
+      /*
+       * Count confirmed people, not bodies. A total-size cap blocks this loop
+       * exactly when it matters — eight unconfirmed strangers already fill the
+       * quota — and those get dropped downstream anyway.
+       */
+      if (confirmedOnly([...seen.values()]).length >= 8) break;
+      for (const r of await webSearch(query, cache)) {
+        if (!/linkedin\.com\/in\//i.test(r.url)) continue;
+        const url = r.url.split("?")[0]!;
+        if (seen.has(url)) continue;
+        const { name, title } = parseLinkedInTitle(r.title);
+        if (!name) continue;
+        seen.set(url, {
+          name,
+          title,
+          linkedinUrl: url,
+          sourceUrl: r.url,
+          employerConfirmed: confirmsEmployer(`${r.title} ${r.snippet}`, company),
+        });
+      }
+    }
+  }
+
+  /*
    * Country is a tiebreaker, never a gate. Nothing is dropped; a mismatch just
    * sorts below a match, and unknown sits between them. sort is stable, so
    * candidates with equal delta keep the order search returned them in.
@@ -321,7 +357,16 @@ export async function findLinkedInProfiles(
   const jobCountry = countryFromJobLocation(jobLocation);
   const ranked = [...seen.values()]
     .map((p) => ({ p, delta: countryRankDelta(countryFromLinkedInUrl(p.linkedinUrl), jobCountry) }))
-    .sort((a, b) => b.delta - a.delta);
+    /*
+     * Confirmed people first, then the country tiebreak. Unconfirmed profiles
+     * are dropped before display, so letting them hold places in the top eight
+     * silently discards the people who would actually be shown — which is what
+     * happened when the small-company fallback appended its results and the
+     * slice below cut them straight off again.
+     */
+    .sort(
+      (a, b) => Number(b.p.employerConfirmed) - Number(a.p.employerConfirmed) || b.delta - a.delta,
+    );
   logCountryMix("discover_contacts", ranked, jobCountry);
   return ranked.map(({ p }) => p).slice(0, 8);
 }
@@ -456,7 +501,13 @@ export async function findReferralProfiles(
   logCountryMix("discover_referrers", ranked, jobCountry);
 
   return ranked
-    .sort((a, b) => b.score + b.delta - (a.score + a.delta))
+    .sort(
+      (a, b) =>
+        // Same reasoning as findLinkedInProfiles: unconfirmed cannot be shown,
+        // so it must not occupy the cap.
+        Number(b.employerConfirmed) - Number(a.employerConfirmed) ||
+        b.score + b.delta - (a.score + a.delta),
+    )
     .slice(0, 8)
     .map(({ score: _score, delta: _delta, ...profile }) => profile);
 }

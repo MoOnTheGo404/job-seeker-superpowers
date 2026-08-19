@@ -1233,6 +1233,31 @@ export function confirmedOnly<T extends { employerConfirmed: boolean }>(
   return profiles.filter((p) => p.employerConfirmed);
 }
 
+/**
+ * Queries for "anyone who works here", used when no recruiter can be confirmed.
+ *
+ * At a two-person startup there is no recruiter and no director, so a search
+ * built from titles falls through to generic matches at unrelated companies —
+ * a real run returned twelve strangers for a company whose entire engineering
+ * team is findable in one search.
+ *
+ * Measured before building. Bare `<company> linkedin.com/in` returned seven
+ * profiles at a seed startup, all seven confirmed, including the exact engineer
+ * found by hand. A wordier variant ("<company> Inc employees") returned one
+ * profile and zero confirmed, so the plain form is the one kept.
+ *
+ * The role-qualified variant exists for companies whose name is an ordinary
+ * word: "Warp" alone surfaced one profile, "Warp dev engineer" surfaced three.
+ */
+export function companyPeopleQueries(company: string, roleTitle?: string | null): string[] {
+  const name = (company ?? "").replace(/\s+/g, " ").trim();
+  if (!name) return [];
+  const queries = [`${name} linkedin.com/in`];
+  const role = (roleTitle ?? "").replace(/\s+/g, " ").trim();
+  if (role) queries.push(`${name} ${role} linkedin.com/in`);
+  return queries;
+}
+
 /** Shown in place of an employer when the source never confirmed one. */
 export const EMPLOYER_UNCONFIRMED = "company not confirmed in source";
 
