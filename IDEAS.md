@@ -10,6 +10,72 @@
 
 ## Rejected and why
 
+### Posting staleness detection
+
+Tell the user a posting is 87 days old before they spend an hour on it. Much of
+the silence in a job search is not rejection but evergreen listings, filled
+roles and pipeline-building reqs, and no other tool in this space surfaces it.
+
+**The date is not in what we fetch, on the platforms that matter.** Measured
+twice, and the second measurement was run specifically because the first
+sample was arguably unrepresentative.
+
+**Measurement 1 — the nine eval fixtures.** A general extractor (JSON-LD, meta
+tags, visible text) found a usable date on **3 of 9 = 33%**:
+
+| fixture                 | form                                       | usable                   |
+| ----------------------- | ------------------------------------------ | ------------------------ |
+| bechtel                 | JSON-LD `datePosted`                       | yes                      |
+| promazo-mit             | meta `article:published_time`              | yes                      |
+| settlyfe-tufts          | meta `article:published_time`              | yes                      |
+| apple                   | bespoke `postingDateMeta` in embedded JSON | only with a per-ATS rule |
+| greenhouse-fde-linkedin | visible text                               | no — see below           |
+| dexcom ×2, glean, warp  | none                                       | no                       |
+
+**Measurement 2 — 24 live postings across six mainstream ATSs.** JSON-LD
+`datePosted` coverage was **6 of 24 = 25%**, and the split is binary rather
+than gradual:
+
+| platform        | fetched | `datePosted` | share    |
+| --------------- | ------- | ------------ | -------- |
+| Ashby           | 4       | 4            | **100%** |
+| Lever           | 2       | 2            | **100%** |
+| Greenhouse      | 8       | 0            | **0%**   |
+| SmartRecruiters | 6       | 0            | 0%       |
+| iCIMS           | 3       | 0            | 0%       |
+| Workable        | 1       | 0            | 0%       |
+
+Three findings beyond the headline number:
+
+- **Greenhouse publishes no post date at all**, confirmed across eight
+  postings from Canonical, DoorDash, Glean, Kalshi, LeafLink, Verisign,
+  Customer.io and Warp. Two expose an `updated_at` of the day they were
+  fetched, which is "last touched" rather than "first posted" and would report
+  every listing as fresh — worse than admitting ignorance. Staleness is
+  therefore unmeasurable precisely at the small, fast-moving companies where it
+  matters most.
+- **LinkedIn's relative dates are not attributable.** A single job page carried
+  "1 week ago", "4 months ago" and "5 days ago" — the posting and its sidebar,
+  indistinguishable once the DOM is stripped. Choosing among them would be a
+  guess presented as a fact.
+- **Conflicting-date pairs do not generalise.** Bechtel's page carries
+  `datePosted=2026-08-15`, `postedDate=2026-08-17` and
+  `postedDateTrack=2026-06-18`, and the two-month gap looked like it might be a
+  repost signal. It repeats nowhere in the wider sample: every dated posting
+  there carries exactly one date. Treat Bechtel as an ATS artifact, not a
+  finding.
+
+Worth recording that the idea is sound where the data exists. Two of the six
+dated postings were years old — `jobs.lever.co/supermove` at `2021-08-11` and
+Ashby/Oso at `2023-01-16` — which is exactly the evergreen listing this was
+meant to catch.
+
+**What would justify revisiting:** Greenhouse adopting schema.org `JobPosting`,
+or a shift in ATS market share toward Ashby and Lever. Re-run both
+measurements; if general coverage does not clear 50%, the answer is still no.
+Building it at 25% would mean the feature is silent on three postings in four,
+and silence from a staleness checker reads as "this posting is fine".
+
 ### Eval fixture gaps
 
 Two candidates failed verification while assembling the discovery eval set, and
