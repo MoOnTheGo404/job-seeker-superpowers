@@ -16,6 +16,7 @@ import {
   crawlCompanyEmails,
   findLinkedInProfiles,
   findReferralProfiles,
+  searchPersonEmail,
   verifyDomain,
 } from "../src/lib/discovery.server";
 import { isRecruiterTitle, type FoundProfile } from "../src/lib/discovery.parse";
@@ -24,6 +25,9 @@ const CASSETTES = "evals/cassettes";
 const FIXTURES = "evals/fixtures";
 const REPORTS = "evals/reports";
 const RECORD = process.argv.includes("--record");
+
+/** Statuses that mean "try later", not "this is the answer". */
+const TRANSIENT = new Set([408, 429, 500, 502, 503, 504]);
 
 interface Fixture {
   id: string;
@@ -94,6 +98,15 @@ function installFetchCassette(): void {
     live++;
     const res = await real(input as RequestInfo, init);
     const text = await res.clone().text();
+
+    /*
+     * Do not tape a transient failure. A 503 from the model got recorded on the
+     * first pass and then replayed forever, turning a momentary blip into a
+     * permanently broken fixture. Leaving these untaped costs one live call on
+     * the next run and keeps the set re-runnable.
+     */
+    if (TRANSIENT.has(res.status)) return res;
+
     writeFileSync(
       path,
       JSON.stringify({
@@ -167,6 +180,7 @@ interface Result {
   recruiters: FoundProfile[];
   referrers: FoundProfile[];
   emails: { email: string; sourceUrl: string }[];
+  personEmails: { email: string; sourceUrl: string }[];
   resolvedDomain: string | null;
   logs: Captured;
 }
@@ -180,6 +194,7 @@ async function runFixture(f: Fixture): Promise<Result> {
     recruiters: [],
     referrers: [],
     emails: [],
+    personEmails: [],
     resolvedDomain: null,
     logs,
   };
@@ -197,6 +212,21 @@ async function runFixture(f: Fixture): Promise<Result> {
       domain ? crawlCompanyEmails(domain) : Promise.resolve([]),
     ]);
     out.recruiters = recruiters;
+
+    /*
+     * discoverContacts looks for a personal address for each of the top four
+     * profiles before falling back to team inboxes. Omitting this measured only
+     * half the email pipeline and would have reported "no emails anywhere" on
+     * evidence that never tested the main path.
+     */
+    const top = recruiters.slice(0, 4);
+    const personEmails = await Promise.all(
+      top.map((p) => searchPersonEmail(p.name, a.company, domain).catch(() => null)),
+    );
+    out.personEmails = personEmails
+      .filter((e): e is NonNullable<typeof e> => Boolean(e))
+      .map((e) => ({ email: e.email, sourceUrl: e.sourceUrl }));
+
     out.emails = inboxes
       .filter((e) => e.recruitingRelevant)
       .slice(0, 4)
@@ -239,7 +269,9 @@ function buildReport(results: Result[]): string {
         a?.role_title ?? "—"
       } | ${a?.department ?? "—"} | ${a?.location ?? "—"} | ${
         r.resolvedDomain ?? "**null**"
-      } | ${r.recruiters.length} | ${r.emails.length} | ${r.referrers.length} |`,
+      } | ${r.recruiters.length} | ${r.personEmails.length} | ${r.emails.length} | ${
+        r.referrers.length
+      } |`,
     );
   }
   L.push("");
@@ -258,7 +290,7 @@ function buildReport(results: Result[]): string {
   const bands = [...new Set(results.map((r) => r.fixture.sizeBand))];
   for (const b of bands) {
     const inBand = results.filter((r) => r.fixture.sizeBand === b);
-    const withEmail = inBand.filter((r) => r.emails.length > 0);
+    const withEmail = inBand.filter((r) => r.emails.length + r.personEmails.length > 0);
     L.push(
       `| ${b} | ${inBand.length} | ${withEmail.length} | ${pct(withEmail.length, inBand.length)} |`,
     );
@@ -361,7 +393,14 @@ async function main(): Promise<void> {
     process.stdout.write(`  ${f.id} … `);
     // Sequential on purpose: Serper allows 5 req/s and discoverContacts
     // already fans out four concurrent lookups of its own.
+    const before = live;
     const r = await runFixture(f);
+    /*
+     * Pace only when the fixture actually went to the network. Gemini's free
+     * tier caps requests per minute, and nine analyses back to back tripped it
+     * three times; a replay run does no I/O and should stay instant.
+     */
+    if (live > before) await new Promise((res) => setTimeout(res, 20_000));
     process.stdout.write(
       r.error
         ? `ERROR ${r.error.slice(0, 60)}\n`
