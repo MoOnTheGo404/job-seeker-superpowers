@@ -1,5 +1,13 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@/integrations/supabase/types";
+
+/** The authenticated, RLS-scoped client the middleware puts on context. */
+type SupabaseServerClient = SupabaseClient<Database>;
+
+/** A stored contact row, as it comes back from the table. */
+type ContactRow = Database["public"]["Tables"]["contacts"]["Row"];
 
 /**
  * Ceiling on third-party text handed to the model, in characters.
@@ -236,6 +244,82 @@ export interface DiscoveredContact {
   notes: string | null;
 }
 
+/**
+ * Persist a discovery run without destroying what it did not rediscover.
+ *
+ * Replaces a delete-everything-then-insert, which cascaded through
+ * outreach.contact_id and silently wiped every draft and sent message for the
+ * target. Measured before the fix: a single rediscovery would have taken 100%
+ * of the outreach table.
+ *
+ * Three moves, in this order:
+ *   - delete only rows with no stable identity (the "Recruiting team" and
+ *     "No referrers found" placeholders), which hold no messages and are
+ *     regenerated every run;
+ *   - upsert people on (target_id, contact_type, linkedin_url), refreshing
+ *     their details while keeping the row — and therefore its outreach — alive;
+ *   - insert this run's placeholders fresh.
+ *
+ * People who did not resurface are deliberately left untouched. Dropping out of
+ * search results is not evidence that someone left the company, and deleting
+ * them would take the conversation with them.
+ */
+async function persistDiscoveredContacts(
+  supabase: SupabaseServerClient,
+  userId: string,
+  targetId: string,
+  contactType: "recruiter" | "referrer",
+  discovered: DiscoveredContact[],
+): Promise<ContactRow[]> {
+  const { normalizeLinkedInUrl, partitionForUpsert } = await import("./contacts.merge");
+
+  // Canonical form on write, so the key matches next time whatever shape the
+  // search result arrives in.
+  const rows = discovered.map((c) => ({
+    ...c,
+    linkedin_url: normalizeLinkedInUrl(c.linkedin_url),
+    target_id: targetId,
+    user_id: userId,
+    contact_type: contactType,
+  }));
+
+  const { data: existing, error: readError } = await supabase
+    .from("contacts")
+    .select("id, linkedin_url")
+    .eq("target_id", targetId)
+    .eq("contact_type", contactType);
+  if (readError) throw new Error(readError.message);
+
+  const plan = partitionForUpsert(rows, existing ?? []);
+
+  if (plan.deletableExistingIds.length) {
+    const { error } = await supabase.from("contacts").delete().in("id", plan.deletableExistingIds);
+    if (error) throw new Error(error.message);
+  }
+
+  if (plan.upsertable.length) {
+    const { error } = await supabase
+      .from("contacts")
+      .upsert(plan.upsertable, { onConflict: "target_id,contact_type,linkedin_url" });
+    if (error) throw new Error(error.message);
+  }
+
+  if (plan.unkeyed.length) {
+    const { error } = await supabase.from("contacts").insert(plan.unkeyed);
+    if (error) throw new Error(error.message);
+  }
+
+  // Read back rather than assembling the result from what was written: rows
+  // that survived this run belong in the answer too.
+  const { data: current, error: finalError } = await supabase
+    .from("contacts")
+    .select("*")
+    .eq("target_id", targetId)
+    .eq("contact_type", contactType);
+  if (finalError) throw new Error(finalError.message);
+  return current ?? [];
+}
+
 export const discoverContacts = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator((input: { targetId: string }) => {
@@ -384,25 +468,13 @@ export const discoverContacts = createServerFn({ method: "POST" })
       });
     }
 
-    // Scoped to this contact_type: referrers live in the same table, and an
-    // unscoped delete here would silently wipe them on every recruiter re-run.
-    await supabase
-      .from("contacts")
-      .delete()
-      .eq("target_id", target.id)
-      .eq("contact_type", "recruiter");
-    const { data: inserted, error: insertError } = await supabase
-      .from("contacts")
-      .insert(
-        contacts.map((c) => ({
-          ...c,
-          target_id: target.id,
-          user_id: userId,
-          contact_type: "recruiter",
-        })),
-      )
-      .select();
-    if (insertError) throw new Error(insertError.message);
+    const inserted = await persistDiscoveredContacts(
+      supabase,
+      userId,
+      target.id,
+      "recruiter",
+      contacts,
+    );
 
     if (domain && domain !== target.company_domain) {
       await supabase.from("job_targets").update({ company_domain: domain }).eq("id", target.id);
@@ -489,23 +561,13 @@ export const discoverReferrers = createServerFn({ method: "POST" })
       });
     }
 
-    await supabase
-      .from("contacts")
-      .delete()
-      .eq("target_id", target.id)
-      .eq("contact_type", "referrer");
-    const { data: inserted, error: insertError } = await supabase
-      .from("contacts")
-      .insert(
-        contacts.map((c) => ({
-          ...c,
-          target_id: target.id,
-          user_id: userId,
-          contact_type: "referrer",
-        })),
-      )
-      .select();
-    if (insertError) throw new Error(insertError.message);
+    const inserted = await persistDiscoveredContacts(
+      supabase,
+      userId,
+      target.id,
+      "referrer",
+      contacts,
+    );
 
     return { contacts: inserted ?? [] };
   });

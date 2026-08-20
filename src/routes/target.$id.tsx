@@ -499,7 +499,7 @@ function ContactCard({
     onSuccess: (row) => {
       if (!row) return;
       setStatusLocal(row.status as OutreachStatus);
-      queryClient.invalidateQueries({ queryKey: ["follow-ups"] });
+      queryClient.invalidateQueries({ queryKey: ["queue"] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
