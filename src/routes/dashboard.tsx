@@ -12,7 +12,7 @@ import { Win95Window, GroupBox } from "@/components/win95/Window";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { analyzeJob, deleteJobTarget, updateOutreachStatus } from "@/lib/recruiters.functions";
-import { FOLLOW_UP_DAYS, needsFollowUp, waitingLabel } from "@/lib/outreach.status";
+import { buildQueue, emptyQueueMessage } from "@/lib/queue";
 
 export const Route = createFileRoute("/dashboard")({
   head: () => ({
@@ -59,39 +59,72 @@ function Dashboard() {
   });
 
   /*
-   * Everything sent and still silent. Read directly under RLS, the same way
-   * targets and contacts already are; only the writes go through server
-   * functions.
+   * The three row sets the queue is built from. Read directly under RLS, the
+   * same way targets already are; only the writes go through server functions.
    *
-   * The staleness cut is applied client-side rather than in the query so the
-   * boundary lives in one tested place instead of being restated as SQL.
+   * One query object, not three, so the queue has a single loading state and a
+   * single error state. Partial data would let a failed join render as a
+   * shorter queue rather than as a failure.
    */
-  const followUps = useQuery({
-    queryKey: ["follow-ups", user?.id],
+  const queueData = useQuery({
+    queryKey: ["queue", user?.id],
     enabled: Boolean(user),
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("outreach")
-        .select(
-          "id, status, sent_at, subject, channel, purpose, contacts(name, title, job_targets(id, company, role_title))",
-        )
-        .eq("status", "sent")
-        .order("sent_at", { ascending: true });
-      if (error) throw new Error(error.message);
-      return data ?? [];
+      const [t, c, o] = await Promise.all([
+        supabase.from("job_targets").select("id, company, role_title, status, created_at"),
+        supabase.from("contacts").select("id, target_id, linkedin_url"),
+        supabase.from("outreach").select("id, contact_id, status, sent_at, created_at"),
+      ]);
+      const failure = t.error ?? c.error ?? o.error;
+      if (failure) throw new Error(failure.message);
+      return {
+        targets: t.data ?? [],
+        contacts: c.data ?? [],
+        outreach: o.data ?? [],
+      };
     },
   });
 
   const now = new Date();
-  const waiting = (followUps.data ?? []).filter((row) => needsFollowUp(row, now));
+  /*
+   * Only built from data that actually arrived. While loading or after a
+   * failure this stays empty, and the panel below renders those as their own
+   * states — never as "nothing due", which would be a false all-clear on the
+   * first surface of the day.
+   */
+  const queue = queueData.data
+    ? buildQueue(queueData.data, now)
+    : { items: [], hiddenCount: 0, awaitingReply: 0 };
 
   const moveStatus = useServerFn(updateOutreachStatus);
   const resolve = useMutation({
     mutationFn: async (vars: { outreachId: string; status: "replied" | "no_reply" }) =>
       moveStatus({ data: vars }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["follow-ups"] });
+      queryClient.invalidateQueries({ queryKey: ["queue"] });
       toast.success("Updated");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  /*
+   * Closing a target from the queue writes the same column the target view's
+   * status dropdown writes, under the same RLS. No new server function for
+   * something the app already does.
+   */
+  const closeTarget = useMutation({
+    mutationFn: async (targetId: string) => {
+      const { error } = await supabase
+        .from("job_targets")
+        .update({ status: "closed" })
+        .eq("id", targetId);
+      if (error) throw new Error(error.message);
+      return targetId;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["queue"] });
+      queryClient.invalidateQueries({ queryKey: ["targets"] });
+      toast.success("Target closed");
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -101,7 +134,7 @@ function Dashboard() {
     mutationFn: async (targetId: string) => removeTarget({ data: { targetId } }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["targets"] });
-      queryClient.invalidateQueries({ queryKey: ["follow-ups"] });
+      queryClient.invalidateQueries({ queryKey: ["queue"] });
       toast.success("Job target deleted");
     },
     onError: (e: Error) => toast.error(e.message),
@@ -195,85 +228,116 @@ function Dashboard() {
         </Win95Window>
 
         {/*
-          Always rendered, including when empty. An absent panel is ambiguous —
-          it could mean nothing is waiting or that the feature is broken — and
-          the whole point is that a glance at the main surface is enough.
+          The first surface of the day, so its three states are kept distinct.
+          A failed query must never look like an empty queue: one is "something
+          is broken", the other is "you are on top of things", and rendering
+          the first as the second is a false all-clear.
         */}
         <Win95Window
-          title="Needs follow-up"
+          title="Today"
           icon={<Clock className="size-3.5 text-black" />}
           menu={["File", "Edit", "View", "Help"]}
           status={[
-            waiting.length
-              ? `${waiting.length} waiting`
-              : followUps.isLoading
-                ? "Loading…"
-                : "Nothing waiting",
-            `Sent over ${FOLLOW_UP_DAYS} days ago`,
+            queueData.isLoading
+              ? "Loading…"
+              : queueData.isError
+                ? "Couldn't load"
+                : queue.items.length
+                  ? `${queue.items.length} to do${queue.hiddenCount ? ` · ${queue.hiddenCount} more` : ""}`
+                  : "Nothing due",
+            "ReachPoint",
           ]}
           bodyClassName="bg-w95-face p-2"
         >
-          {waiting.length === 0 ? (
+          {queueData.isLoading ? (
+            <p className="px-1 py-2 text-[11px] text-black">Loading your queue…</p>
+          ) : queueData.isError ? (
+            <div className="bevel-in-thin bg-w95-info px-3 py-2 text-[11px] text-black">
+              <p className="font-bold">Couldn&apos;t load your queue.</p>
+              <p className="mt-1">
+                {queueData.error instanceof Error ? queueData.error.message : "Unknown error."}
+              </p>
+              <Button
+                size="sm"
+                variant="secondary"
+                className="mt-2"
+                onClick={() => void queueData.refetch()}
+              >
+                Try again
+              </Button>
+            </div>
+          ) : queue.items.length === 0 ? (
             <p className="px-1 py-2 text-[11px] text-black">
-              Nothing waiting. Messages appear here once they have been sent and gone{" "}
-              {FOLLOW_UP_DAYS} days without a reply.
+              {emptyQueueMessage(queue.awaitingReply)}
             </p>
           ) : (
-            <ul className="bevel-in divide-y divide-w95-shadow bg-w95-field">
-              {waiting.map((row) => {
-                const contact = row.contacts as {
-                  name: string | null;
-                  title: string | null;
-                  job_targets: { id: string; company: string; role_title: string } | null;
-                } | null;
-                const job = contact?.job_targets ?? null;
-                const wait = waitingLabel(row.sent_at, now);
-                return (
+            <>
+              <ul className="bevel-in divide-y divide-w95-shadow bg-w95-field">
+                {queue.items.map((item) => (
                   <li
-                    key={row.id}
+                    key={`${item.kind}:${item.id}`}
                     className="flex flex-wrap items-center justify-between gap-2 px-2 py-2"
                   >
                     <div className="min-w-0">
-                      <p className="truncate text-[11px] font-bold text-black">
-                        {contact?.name ?? "Recruiting team"}
-                        {job ? ` — ${job.company}` : ""}
-                      </p>
-                      <p className="truncate text-[11px] text-w95-muted">
-                        {job?.role_title ?? "—"}
-                        {wait ? ` · sent ${wait}` : ""}
-                        {row.purpose === "referral" ? " · referral ask" : ""}
-                      </p>
+                      <p className="truncate text-[11px] font-bold text-black">{item.title}</p>
+                      <p className="truncate text-[11px] text-w95-muted">{item.detail}</p>
                     </div>
-                    {/* One click each, no dropdown, no modal, no navigation. */}
+                    {/* One button, inline. No modal, no navigating away. */}
                     <div className="flex shrink-0 gap-1">
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        disabled={resolve.isPending}
-                        onClick={() => resolve.mutate({ outreachId: row.id, status: "replied" })}
-                      >
-                        Replied
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        disabled={resolve.isPending}
-                        onClick={() => resolve.mutate({ outreachId: row.id, status: "no_reply" })}
-                      >
-                        No reply
-                      </Button>
-                      {job && (
+                      {/*
+                        Follow-up rows carry a second button on purpose.
+                        Recording a reply is the one transition the design
+                        never infers from an action, and this window was the
+                        only place in the app that could do it — dropping it
+                        would make "replied" unreachable and leave reply-rate
+                        data permanently empty.
+                      */}
+                      {item.kind === "follow_up" && item.action.outreachId && (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={resolve.isPending}
+                          onClick={() =>
+                            resolve.mutate({
+                              outreachId: item.action.outreachId!,
+                              status: "replied",
+                            })
+                          }
+                        >
+                          Replied
+                        </Button>
+                      )}
+                      {item.kind === "idle_target" ? (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            disabled={closeTarget.isPending}
+                            onClick={() => closeTarget.mutate(item.action.targetId)}
+                          >
+                            Mark closed
+                          </Button>
+                          <Button size="sm" asChild>
+                            <Link to="/target/$id" params={{ id: item.action.targetId }}>
+                              Reopen
+                            </Link>
+                          </Button>
+                        </>
+                      ) : (
                         <Button size="sm" asChild>
-                          <Link to="/target/$id" params={{ id: job.id }}>
-                            Follow up
+                          <Link to="/target/$id" params={{ id: item.action.targetId }}>
+                            {item.action.label}
                           </Link>
                         </Button>
                       )}
                     </div>
                   </li>
-                );
-              })}
-            </ul>
+                ))}
+              </ul>
+              {queue.hiddenCount > 0 && (
+                <p className="px-1 pt-2 text-[11px] text-w95-muted">and {queue.hiddenCount} more</p>
+              )}
+            </>
           )}
         </Win95Window>
 
