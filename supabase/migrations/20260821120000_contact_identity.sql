@@ -23,12 +23,9 @@
 --
 -- Every step is idempotent; re-running is safe.
 
--- Counts are captured as the migration runs so they can be read back at the
--- end. A NOTICE scrolls away in the editor; a table does not.
-CREATE TEMP TABLE _contact_identity_report (
-  metric text,
-  value  bigint
-) ON COMMIT DROP;
+-- Counts are reported two ways, and neither creates an object: RAISE NOTICE
+-- for what happened during the run, and a plain SELECT at the end for the
+-- end state, which is independently checkable against the table itself.
 
 DO $$
 DECLARE
@@ -111,11 +108,10 @@ BEGIN
       collisions, E'\n', offending;
   END IF;
 
-  INSERT INTO _contact_identity_report(metric, value) VALUES
-    ('rows_with_linkedin_url', total_with_url),
-    ('already_canonical_before', already_canonical),
-    ('backfilled_by_this_run', backfilled),
-    ('collisions_after_backfill', collisions);
+  RAISE NOTICE 'rows_with_linkedin_url    = %', total_with_url;
+  RAISE NOTICE 'already_canonical_before = %', already_canonical;
+  RAISE NOTICE 'backfilled_by_this_run   = %', backfilled;
+  RAISE NOTICE 'collisions_after_backfill = %', collisions;
 END $$;
 
 ---------------------------------------------------------------- step 3
@@ -126,6 +122,29 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_identity
   ON public.contacts (target_id, contact_type, linkedin_url)
   WHERE linkedin_url IS NOT NULL;
 
--- Read this back. Expect collisions_after_backfill = 0, and
--- already_canonical_before + backfilled_by_this_run = rows_with_linkedin_url.
-SELECT metric, value FROM _contact_identity_report ORDER BY metric;
+-- End state, recomputed from the table rather than remembered. Expect
+-- canonical_now to equal rows_with_linkedin_url, and collisions_now to be 0.
+-- The during-run counts (how many were already canonical, how many this run
+-- changed) are in the NOTICE output above.
+SELECT
+  count(*) FILTER (WHERE linkedin_url IS NOT NULL) AS rows_with_linkedin_url,
+  count(*) FILTER (
+    WHERE linkedin_url IS NOT NULL
+      AND linkedin_url = regexp_replace(
+            regexp_replace(
+              lower(split_part(split_part(linkedin_url, '?', 1), '#', 1)),
+              '^https?://(?:www\.|[a-z]{2}\.)?linkedin\.com', 'https://linkedin.com'
+            ),
+            '/+$', ''
+          )
+  ) AS canonical_now,
+  (
+    SELECT count(*) FROM (
+      SELECT 1 FROM public.contacts
+       WHERE linkedin_url IS NOT NULL
+       GROUP BY target_id, contact_type, linkedin_url
+      HAVING count(*) > 1
+    ) d
+  ) AS collisions_now,
+  count(*) FILTER (WHERE linkedin_url IS NULL) AS placeholders
+FROM public.contacts;
