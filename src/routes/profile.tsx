@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Win95Window, GroupBox } from "@/components/win95/Window";
 import { useAuth } from "@/hooks/useAuth";
 import { useProfile } from "@/hooks/useProfile";
-import { EMPTY_PROFILE, MAX_ENTRIES, type ApplicantProfile } from "@/lib/profile";
+import { EMPTY_PROFILE, isProfileEmpty, MAX_ENTRIES, type ApplicantProfile } from "@/lib/profile";
 
 export const Route = createFileRoute("/profile")({
   head: () => ({
@@ -98,12 +98,23 @@ function ProfilePage() {
                 to invent your background.
               </p>
 
+              {/*
+                Greyed example text is easy to mistake for saved data — it was,
+                on first read. Say plainly which state this is in.
+              */}
+              {!query.isLoading && query.data && isProfileEmpty(query.data) && (
+                <p className="bevel-in-thin bg-w95-info px-3 py-2 text-[11px] text-black">
+                  Nothing saved yet. The greyed text below is an example, not your data — type over
+                  it and choose Save.
+                </p>
+              )}
+
               <GroupBox label="Education" className="bg-w95-face">
                 <Textarea
                   rows={2}
                   value={draft.education}
                   onChange={(e) => setDraft((d) => ({ ...d, education: e.target.value }))}
-                  placeholder="BS Computer Science, graduating June 2026…"
+                  placeholder="e.g. BSc Mechanical Engineering, 2024"
                 />
               </GroupBox>
 
@@ -116,7 +127,7 @@ function ProfilePage() {
                   rows={3}
                   value={toLines(draft.schools)}
                   onChange={(e) => setDraft((d) => ({ ...d, schools: fromLines(e.target.value) }))}
-                  placeholder={"University of California, San Diego\nUCSD"}
+                  placeholder={"e.g. Michigan State University\ne.g. MSU"}
                 />
               </GroupBox>
 
@@ -125,7 +136,7 @@ function ProfilePage() {
                   rows={3}
                   value={toLines(draft.skills)}
                   onChange={(e) => setDraft((d) => ({ ...d, skills: fromLines(e.target.value) }))}
-                  placeholder={"Go\nTypeScript\nPostgres"}
+                  placeholder={"e.g. Python\ne.g. SQL\ne.g. AutoCAD"}
                 />
               </GroupBox>
 
@@ -136,13 +147,13 @@ function ProfilePage() {
                       <Input
                         value={entry.title}
                         onChange={(e) => setEntry(i, { title: e.target.value })}
-                        placeholder="Backend Engineer at Acme — or a project name"
+                        placeholder="e.g. Field Engineer at Turner Construction — or a project name"
                       />
                       <Textarea
                         rows={2}
                         value={entry.description}
                         onChange={(e) => setEntry(i, { description: e.target.value })}
-                        placeholder="What you built and what changed because of it."
+                        placeholder="e.g. Ran daily coordination for a 40-person site crew."
                       />
                       <Button
                         size="sm"
@@ -182,7 +193,7 @@ function ProfilePage() {
                   rows={3}
                   value={draft.notes}
                   onChange={(e) => setDraft((d) => ({ ...d, notes: e.target.value }))}
-                  placeholder="Availability, visa status, what you're looking for…"
+                  placeholder="e.g. Available from March, open to relocation"
                 />
               </GroupBox>
 
