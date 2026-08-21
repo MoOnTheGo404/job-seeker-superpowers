@@ -57,7 +57,7 @@ function ProfilePage() {
 
   return (
     <div className="desktop-bg min-h-screen pb-[42px]">
-      <AppHeader />
+      <AppHeader email={user?.email ?? null} />
       <main className="mx-auto flex max-w-3xl flex-col gap-4 p-4">
         <Win95Window
           title="About you"

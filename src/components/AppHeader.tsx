@@ -25,7 +25,14 @@ function Clock() {
  * The taskbar. Fixed to the bottom of the viewport like the real thing, so
  * every page needs bottom padding to clear it (see `pb-[42px]` on the routes).
  */
-export function AppHeader({ email }: { email?: string | null }) {
+/*
+ * `email` is required rather than optional on purpose. It was optional, and a
+ * route rendered <AppHeader /> with no props: the header decided nobody was
+ * signed in, showed "Sign in" and hid the profile link, while the page behind
+ * it was serving a signed-in user. Nothing failed, which is why it survived.
+ * Required means the compiler catches the next one.
+ */
+export function AppHeader({ email }: { email: string | null }) {
   const navigate = useNavigate();
 
   return (
