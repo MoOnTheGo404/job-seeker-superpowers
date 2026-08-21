@@ -142,11 +142,186 @@ export function looksUnreadable(text: string | null | undefined): boolean {
   const t = (text ?? "").trim();
   if (!t) return true;
 
-  // Real posting language settles it, whatever the length.
+  /*
+   * The JavaScript notice is checked BEFORE the job-content veto, and the order
+   * is the whole point.
+   *
+   * It used to be the other way round, and Apple's posting slipped through for
+   * two sessions: the page says "Please enable Javascript in your browser" and
+   * carries no description at all, but its legal boilerplate mentions benefits
+   * and compensation, so JOB_SIGNAL vetoed first and the shell was declared
+   * readable. department, seniority and summary were then derived from a
+   * navigation menu, and nothing surfaced it because company and role come from
+   * the title tag.
+   *
+   * A page that announces it needs a browser is not a posting, whatever else it
+   * happens to contain.
+   */
+  if (NEEDS_JS.test(t)) return true;
+
+  // Real posting language settles the rest, whatever the length — that veto is
+  // what keeps a terse but genuine posting readable.
   if (JOB_SIGNAL.test(t)) return false;
 
-  if (t.length < MIN_READABLE_CHARS) return true;
-  return NEEDS_JS.test(t);
+  return t.length < MIN_READABLE_CHARS;
+}
+
+/**
+ * Phrases an ATS shows where the description used to be, once a req closes.
+ *
+ * Deliberately narrow. Each names the posting's own state — "the job you are
+ * trying to apply for has been filled" is Bechtel's, verbatim. A live posting
+ * can mention "closing date" or "we have filled many roles" in prose, so
+ * anything that vague is left out.
+ */
+const FILLED_PHRASES = [
+  /\bthe job (?:you are|you're) trying to apply for has been filled\b/i,
+  /\bthis (?:job|position|posting|requisition|vacancy) (?:has been|is) (?:filled|closed|expired)\b/i,
+  /\bno longer (?:accepting applications|available|open|active)\b/i,
+  /\bthis (?:job|position|posting) is no longer\b/i,
+  /\bapplications (?:for this (?:role|position) )?(?:are|have) closed\b/i,
+  /\bposting (?:has )?expired\b/i,
+  /\bthis (?:role|opening) has been filled\b/i,
+];
+
+/**
+ * Has this posting already been filled or closed?
+ *
+ * The one case where a definite negative beats a null. "This posting has been
+ * filled" tells the user to stop, which is more useful than any score computed
+ * from the page furniture that replaced the description — and that furniture is
+ * exactly what an ATS leaves behind, so without this the model describes a
+ * benefits blurb and reports it as the job.
+ */
+export function looksFilled(text: string | null | undefined): boolean {
+  const t = (text ?? "").trim();
+  if (!t) return false;
+  return FILLED_PHRASES.some((re) => re.test(t));
+}
+
+/**
+ * Titles a jobs *listing* uses: a count, a keyword and usually a place.
+ *
+ * LinkedIn serves a search page in response to an unauthenticated fetch of a
+ * /jobs/view/<id> URL, so the URL is right and the response is wrong — the URL
+ * check cannot catch it by construction. The title can: a real posting is
+ * titled after one role at one company, a listing is titled after how many it
+ * found.
+ *
+ * Anchored to the start and requires the count to be immediately followed by
+ * job words, so a genuine posting whose title contains a number — "Engineer II",
+ * "5G Systems Engineer", "Analyst, 2026 Graduate Program" — cannot trip it.
+ */
+const LISTING_TITLE = /^\s*[\d,.]+\+?\s+[\w\s/&'-]{0,40}\bjobs\b/i;
+
+/**
+ * Is this page a jobs listing rather than one posting, judged by its title?
+ *
+ * Separate from the URL check because they fail differently and neither
+ * subsumes the other.
+ */
+export function looksLikeListingTitle(title: string | null | undefined): boolean {
+  const t = (title ?? "").trim();
+  if (!t) return false;
+  if (LISTING_TITLE.test(t)) return true;
+  // "Jobs in Boston", "Search jobs at Acme" — a listing naming no single role.
+  return /^\s*(?:search\s+)?jobs\b/i.test(t);
+}
+
+/**
+ * Remove embedded configuration blobs before judging a page's text.
+ *
+ * Phenom-based career sites inline their whole theme configuration into the
+ * HTML, and stripHtml removes tags but not a JSON object sitting in a text
+ * node: one fixture came back 40% CSS variables by volume. Feeding that to a
+ * model is feeding it nothing, expensively.
+ *
+ * Deliberately narrow. It removes runs that look like machine configuration —
+ * many quoted key/value pairs, with the HTML-escaped quotes those blobs carry —
+ * and leaves ordinary JSON alone, so a backend posting showing a config example
+ * or a snippet in a code block keeps it.
+ */
+/** Escaped quotes closer than this belong to the same serialised object. */
+const MAX_MARK_GAP = 80;
+/** Fewer escaped quotes than this in a run is a quotation, not a config dump. */
+const MIN_BLOB_MARKS = 10;
+
+export function stripConfigBlobs(text: string | null | undefined): string {
+  const raw = (text ?? "").trim();
+  if (!raw) return "";
+
+  /*
+   * Scans for dense runs of escaped quotes rather than matching balanced
+   * braces, which was the first attempt and did not survive contact: the blob
+   * on a real page was both nested deeper than the pattern allowed and cut
+   * mid-object by the 20,000 character fetch cap, so there was no closing brace
+   * to match at all.
+   *
+   * Density is the reliable signal. Serialised configuration puts a quoted key
+   * every few characters; prose quoting JSON does not, and does it with real
+   * quote characters rather than the HTML-escaped ones a dumped attribute
+   * carries.
+   */
+  const marks: number[] = [];
+  const re = /&#34;|&quot;/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(raw))) marks.push(m.index);
+  if (marks.length < MIN_BLOB_MARKS) return raw.replace(/\s+/g, " ").trim();
+
+  // Group marks that sit close together; a group large enough is a blob.
+  const cuts: [number, number][] = [];
+  let start = 0;
+  for (let i = 1; i <= marks.length; i++) {
+    const broken = i === marks.length || marks[i]! - marks[i - 1]! > MAX_MARK_GAP;
+    if (!broken) continue;
+    if (i - start >= MIN_BLOB_MARKS) cuts.push([marks[start]!, marks[i - 1]! + 6]);
+    start = i;
+  }
+  if (!cuts.length) return raw.replace(/\s+/g, " ").trim();
+
+  let out = "";
+  let cursor = 0;
+  for (const [from, to] of cuts) {
+    out += raw.slice(cursor, from) + " ";
+    cursor = Math.min(to, raw.length);
+  }
+  out += raw.slice(cursor);
+  return out.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Is this a jobs *search* or listing page rather than one posting?
+ *
+ * LinkedIn serves both from similar-looking URLs, and a search page carries
+ * dozens of other companies' roles. Fed to the model it produces a plausible
+ * company and role belonging to whichever listing happened to appear first.
+ *
+ * Judged on the URL, since that is unambiguous: /jobs/view/<id> is a posting,
+ * /jobs/search and the keyword-listing forms are not. Content heuristics were
+ * rejected — a real posting legitimately shows "similar jobs" alongside it.
+ */
+export function looksLikeJobSearchPage(url: string | null | undefined): boolean {
+  if (!url) return false;
+  let parsed: URL;
+  try {
+    parsed = new URL(url.trim());
+  } catch {
+    return false;
+  }
+  const host = parsed.hostname.toLowerCase().replace(/^(?:www|[a-z]{2})\./, "");
+  const path = parsed.pathname.toLowerCase().replace(/\/+$/, "");
+
+  if (host === "linkedin.com") {
+    // The only LinkedIn shape that is a single posting.
+    if (/^\/jobs\/view\/[^/]+$/.test(path)) return false;
+    if (path === "/jobs" || path.startsWith("/jobs/search")) return true;
+    // "/jobs/<keyword>-jobs-<place>" and "/jobs/<company>-jobs" are listings.
+    if (path.startsWith("/jobs/") && /-jobs(?:-|$)/.test(path)) return true;
+    return false;
+  }
+
+  // Generic search paths on any host.
+  return /^\/(?:jobs|careers)?\/?search\b/.test(path) || path.endsWith("/search-jobs");
 }
 
 export const RECRUIT_TITLES = [

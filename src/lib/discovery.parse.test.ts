@@ -25,7 +25,10 @@ import {
   isJobBoard,
   isRecruiterTitle,
   isSeniorTitle,
+  looksFilled,
   looksLikeAuthWall,
+  looksLikeJobSearchPage,
+  looksLikeListingTitle,
   looksUnreadable,
   matchesDepartment,
   matchesPerson,
@@ -33,6 +36,7 @@ import {
   parseJsonBlock,
   parseLinkedInTitle,
   scoreReferralCandidate,
+  stripConfigBlobs,
   stripHtml,
   tidyHeadline,
 } from "./discovery.parse";
@@ -962,6 +966,20 @@ describe("looksUnreadable", () => {
     expect(looksUnreadable(posting)).toBe(false);
   });
 
+  it("rejects a JS shell even when boilerplate mentions job words", () => {
+    // Apple's posting, verbatim in shape: a JavaScript notice plus legal and
+    // benefits boilerplate, and no description at all. The job-word veto used
+    // to run first and let this through for two sessions.
+    const shell =
+      "Software Engineer - Jobs - Careers at Apple. " +
+      "Please enable Javascript in your browser for best experience. " +
+      "Benefits and compensation are described elsewhere. ".repeat(6) +
+      "An employer who violates this law shall be subject to criminal penalties.";
+    expect(/enable javascript/i.test(shell)).toBe(true);
+    expect(/\b(benefits|compensation)\b/i.test(shell)).toBe(true);
+    expect(looksUnreadable(shell)).toBe(true);
+  });
+
   it("accepts a terse posting on its job content alone", () => {
     // Under the length floor, but unmistakably a posting. Content wins.
     const terse = "Responsibilities: build APIs. Qualifications: 3 years Go.";
@@ -1051,5 +1069,157 @@ describe("companyPeopleQueries", () => {
   it("returns nothing without a company", () => {
     expect(companyPeopleQueries("")).toEqual([]);
     expect(companyPeopleQueries("   ", "Engineer")).toEqual([]);
+  });
+});
+
+describe("looksFilled", () => {
+  it("catches the notice an ATS leaves where the description was", () => {
+    // Bechtel's, verbatim from the fetched page.
+    expect(looksFilled("We're sorry… the job you are trying to apply for has been filled.")).toBe(
+      true,
+    );
+    expect(looksFilled("This position has been filled.")).toBe(true);
+    expect(looksFilled("This posting is no longer accepting applications.")).toBe(true);
+    expect(looksFilled("Applications for this role have closed.")).toBe(true);
+    expect(looksFilled("This job posting has expired.")).toBe(true);
+  });
+
+  it("leaves a live posting alone — false-positive control", () => {
+    // A real posting may discuss closing dates or the company's hiring history
+    // without being closed itself.
+    const live =
+      "Senior Backend Engineer at Acme. Responsibilities: build APIs. " +
+      "Qualifications: 5 years experience. We have filled many roles on this team this year " +
+      "and the closing date for applications is 30 June. Benefits include health cover.";
+    expect(looksFilled(live)).toBe(false);
+  });
+
+  it("says nothing about empty input", () => {
+    expect(looksFilled("")).toBe(false);
+    expect(looksFilled(null)).toBe(false);
+  });
+});
+
+describe("looksLikeJobSearchPage", () => {
+  it("rejects LinkedIn search and keyword-listing pages", () => {
+    // The fixture that returned a page titled "1,000+ J2ee Developer jobs in
+    // United States", listing other companies entirely.
+    expect(looksLikeJobSearchPage("https://www.linkedin.com/jobs/search?keywords=engineer")).toBe(
+      true,
+    );
+    expect(looksLikeJobSearchPage("https://www.linkedin.com/jobs/j2ee-developer-jobs")).toBe(true);
+    expect(
+      looksLikeJobSearchPage("https://www.linkedin.com/jobs/apple-software-engineer-jobs"),
+    ).toBe(true);
+    expect(looksLikeJobSearchPage("https://www.linkedin.com/jobs")).toBe(true);
+  });
+
+  it("accepts a real LinkedIn posting — false-positive control", () => {
+    // /jobs/view/<id> is the single-posting shape and must survive.
+    expect(
+      looksLikeJobSearchPage(
+        "https://www.linkedin.com/jobs/view/forward-deployed-engineer-at-greenhouse-software-4413365877",
+      ),
+    ).toBe(false);
+    expect(looksLikeJobSearchPage("https://www.linkedin.com/jobs/view/4413365877")).toBe(false);
+  });
+
+  it("leaves ordinary ATS postings alone", () => {
+    for (const url of [
+      "https://job-boards.greenhouse.io/warp/jobs/4324888004",
+      "https://jobs.lever.co/dnb/fcb14739",
+      "https://jobs.apple.com/en-us/details/200653729-0157/software-engineer",
+      "https://careers.tufts.edu/jobs/settlyfe-inc-founding-product-qa-intern/",
+    ]) {
+      expect(looksLikeJobSearchPage(url)).toBe(false);
+    }
+  });
+
+  it("catches generic search paths on other hosts", () => {
+    expect(looksLikeJobSearchPage("https://jobs.encoreglobal.com/en/search-jobs")).toBe(true);
+    expect(looksLikeJobSearchPage("https://careers.example.com/search?q=engineer")).toBe(true);
+  });
+
+  it("returns false for junk rather than throwing", () => {
+    expect(looksLikeJobSearchPage(null)).toBe(false);
+    expect(looksLikeJobSearchPage("not a url")).toBe(false);
+  });
+});
+
+describe("looksLikeListingTitle", () => {
+  it("catches the title LinkedIn serves to a logged-out fetch", () => {
+    // Verbatim from the fixture whose URL is a valid /jobs/view/<id> posting.
+    // The URL check cannot catch this: the URL is right, the response is wrong.
+    expect(looksLikeListingTitle("1,000+ J2ee Developer jobs in United States")).toBe(true);
+    expect(looksLikeListingTitle("532 Greenhouse jobs in United Kingdom")).toBe(true);
+    expect(looksLikeListingTitle("Jobs in Boston | LinkedIn")).toBe(true);
+    expect(looksLikeListingTitle("Search jobs at Acme")).toBe(true);
+  });
+
+  it("leaves a real LinkedIn posting title alone — false-positive control", () => {
+    expect(
+      looksLikeListingTitle("Forward Deployed Engineer - Greenhouse Software | LinkedIn"),
+    ).toBe(false);
+    expect(looksLikeListingTitle("Software Engineer, Information Systems & Technology")).toBe(
+      false,
+    );
+  });
+
+  it("leaves a posting whose title contains a number alone", () => {
+    // The specific false positive worth guarding: a count only counts when job
+    // words follow it immediately.
+    for (const title of [
+      "Engineer II - Acme",
+      "5G Systems Engineer",
+      "Analyst, 2026 Graduate Program",
+      "Software Development Engineer 1 | Dexcom",
+      "100 Days Program Manager",
+    ]) {
+      expect(looksLikeListingTitle(title)).toBe(false);
+    }
+  });
+
+  it("says nothing about empty input", () => {
+    expect(looksLikeListingTitle("")).toBe(false);
+    expect(looksLikeListingTitle(null)).toBe(false);
+  });
+});
+
+describe("stripConfigBlobs", () => {
+  it("removes an escaped-quote config blob", () => {
+    // One fixture came back 40% CSS variables by volume, in this exact shape.
+    const page =
+      "Careers at Dexcom {&#34;themeOptions&#34;: {&#34;customTheme&#34;: " +
+      "{&#34;varTheme&#34;: {&#34;border-radius-xl&#34;: &#34;4px&#34;}}} " +
+      "Sr Android SW Development Engineer";
+    const out = stripConfigBlobs(page);
+    expect(out).not.toContain("varTheme");
+    expect(out).toContain("Sr Android SW Development Engineer");
+    expect(out).toContain("Careers at Dexcom");
+  });
+
+  it("keeps JSON a posting legitimately contains — false-positive control", () => {
+    // A backend role showing a config example, with real quote characters.
+    const posting =
+      'Backend Engineer. You will own our config layer. Example: {"retries": 3, "timeout": "5s"} ' +
+      "Requirements: 3 years Go.";
+    const out = stripConfigBlobs(posting);
+    expect(out).toContain('{"retries": 3, "timeout": "5s"}');
+    expect(out).toContain("Requirements: 3 years Go");
+  });
+
+  it("keeps a code block quoting structured data", () => {
+    const posting =
+      'Data Engineer. Our events look like {"user_id": 1, "event": "click", "ts": 0}. ' +
+      "Qualifications: SQL and Python.";
+    expect(stripConfigBlobs(posting)).toContain('"event": "click"');
+  });
+
+  it("leaves prose untouched and handles empty input", () => {
+    expect(stripConfigBlobs("Senior Engineer at Acme. Requirements: Go.")).toBe(
+      "Senior Engineer at Acme. Requirements: Go.",
+    );
+    expect(stripConfigBlobs("")).toBe("");
+    expect(stripConfigBlobs(null)).toBe("");
   });
 });

@@ -133,6 +133,51 @@ page: fetching it returns HTTP 200 with zero characters. That was found while
 verifying these fixtures and fixed separately — the fetch now reports
 `unreadable` rather than passing an empty string to the model.
 
+## Expected outcome per fixture
+
+Added after a Step 0 measurement found that four fixtures were never yielding
+the posting at all, while `analyzeJob` silently derived department, seniority
+and summary from page furniture — company and role came from the title tag, so
+nothing surfaced it.
+
+A fixture that is _supposed_ to be rejected is not a coverage failure. It is a
+test that the app refuses to describe a page it cannot read.
+
+| fixture                        | expected                        | why                                                                  |
+| ------------------------------ | ------------------------------- | -------------------------------------------------------------------- |
+| `dexcom-swtest-1-wd`           | **yield**                       | pasted text                                                          |
+| `glean-greenhouse`             | **yield**                       | Greenhouse serves the posting                                        |
+| `promazo-mit`                  | **yield**                       | university board serves the posting                                  |
+| `settlyfe-tufts`               | **yield**                       | university board serves the posting                                  |
+| `warp-greenhouse`              | **yield**                       | Greenhouse serves the posting                                        |
+| `apple-swe-ist`                | **reject** `unreadable`         | client-rendered; page says "Please enable Javascript"                |
+| `bechtel-electrical-field-eng` | **reject** `filled`             | "the job you are trying to apply for has been filled"                |
+| `greenhouse-fde-linkedin`      | **reject** `search_page`        | LinkedIn answers a logged-out `/jobs/view/` fetch with a search page |
+| `dexcom-sr-android-careers`    | **reject** — _currently yields_ | known gap, see below                                                 |
+
+**Coverage as of this measurement: 5 yield, 3 correctly rejected, 1 known false
+yield.**
+
+`greenhouse-fde-linkedin` is deliberately kept rather than replaced. LinkedIn
+serving a listing to logged-out fetches is behaviour every user will hit, so it
+belongs in the set as a must-reject; swapping it for a URL that happens to work
+would hide a real failure mode.
+
+### Known gap: `dexcom-sr-android-careers`
+
+Phenom-based career sites render the posting in the browser and inline their
+theme configuration into the HTML. `stripConfigBlobs` now removes the escaped-
+quote blob, but what remains is asset URLs, escaped CSS and marketing copy —
+20,000 characters that pass every length and content check while containing no
+posting. Measured directly: no requirements header, no "you will" phrasing, no
+"years of experience", and the word **Android** does not appear once, in a
+posting titled "Sr Android SW Development Engineer".
+
+The signal that would catch it is the distinctive noun from the page title
+being absent from the body. A posting about an Android role mentions Android.
+Not built yet: it needs the same false-positive discipline as the other checks,
+since a real posting does not always repeat its own title.
+
 Still missing, deliberately deferred until labelling has proven useful at this
 size: a non-US posting, an explicitly multi-location posting, and wider industry
 spread.

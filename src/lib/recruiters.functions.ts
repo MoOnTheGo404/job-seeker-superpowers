@@ -71,6 +71,21 @@ export async function analyzeJobCore(jobUrl?: string, jobText?: string): Promise
 
     if (fetched.ok) {
       pageText = `${pageText}\n\n${fetched.text}`.trim();
+    } else if (fetched.reason === "filled" && !pageText) {
+      /*
+       * The one case where a definite negative beats a null: telling the user
+       * to stop is more useful than any analysis of the furniture an ATS
+       * leaves where the description was.
+       */
+      throw new Error(
+        "This posting has been filled or closed — the page now says so where the " +
+          "description used to be. Nothing to analyse, and nothing worth applying to.",
+      );
+    } else if (fetched.reason === "search_page" && !pageText) {
+      throw new Error(
+        "That link is a job search page, not a single posting, so it lists other " +
+          "companies' roles. Open the specific job and paste its link instead.",
+      );
     } else if (fetched.reason === "unreadable" && !pageText) {
       /*
        * Fetched successfully and contained nothing. Workday and similar
