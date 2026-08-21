@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Win95Window, GroupBox } from "@/components/win95/Window";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { useLegacyProfileMigration } from "@/hooks/useProfile";
 import { analyzeJob, deleteJobTarget, updateOutreachStatus } from "@/lib/recruiters.functions";
 import { buildQueue, emptyQueueMessage } from "@/lib/queue";
 
@@ -36,6 +37,15 @@ function Dashboard() {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+
+  /*
+   * One-time move of the old browser-stored background into the profile. Runs
+   * here rather than on the profile page so it happens on the surface everyone
+   * lands on. Safe to run repeatedly: local data is only ever promoted into an
+   * empty server profile, so a second device or a reload mid-migration clears
+   * rather than overwrites.
+   */
+  useLegacyProfileMigration(user?.id);
   const analyze = useServerFn(analyzeJob);
 
   const [jobUrl, setJobUrl] = useState("");

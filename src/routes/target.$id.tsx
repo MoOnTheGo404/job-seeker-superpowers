@@ -20,6 +20,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Win95Window, GroupBox } from "@/components/win95/Window";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { useProfile } from "@/hooks/useProfile";
+import { isProfileEmpty } from "@/lib/profile";
 import {
   closeOutreachForTarget,
   deleteJobTarget,
@@ -53,52 +55,6 @@ export const Route = createFileRoute("/target/$id")({
 });
 
 const STATUSES = ["researching", "contacted", "applied", "interviewing", "closed"];
-
-const BACKGROUND_KEY = "reachpoint:applicant-background";
-const SCHOOLS_KEY = "reachpoint:applicant-schools";
-
-/**
- * The applicant's own background, the only facts a draft is allowed to state
- * about them.
- *
- * Kept in localStorage rather than the profiles table so it carries across
- * every target without a migration. Worth moving server-side later if it
- * should follow the user between devices.
- */
-function useApplicantBackground() {
-  return useLocalField(BACKGROUND_KEY);
-}
-
-/**
- * The applicant's schools, one per line.
- *
- * Stored separately from the free-text background rather than parsed out of
- * it: guessing which words in a sentence are an institution is exactly the
- * kind of inference that produces confident wrong answers. Same localStorage
- * dependency as the background, and it moves server-side with it.
- */
-function useApplicantSchools() {
-  return useLocalField(SCHOOLS_KEY);
-}
-
-function useLocalField(key: string) {
-  const [value, setValue] = useState("");
-  const hydrated = useRef(false);
-
-  // Read after mount: localStorage does not exist during SSR, so seeding
-  // useState from it directly would desync the server and client renders.
-  useEffect(() => {
-    setValue(localStorage.getItem(key) ?? "");
-    hydrated.current = true;
-  }, [key]);
-
-  useEffect(() => {
-    // Guarded so the pre-hydration empty string can't wipe a stored value.
-    if (hydrated.current) localStorage.setItem(key, value);
-  }, [key, value]);
-
-  return [value, setValue] as const;
-}
 
 /** Win95 combo box: sunken field plus a beveled drop-down arrow on the right. */
 function W95Select({
@@ -141,9 +97,12 @@ function TargetPage() {
   const queryClient = useQueryClient();
   const runDiscovery = useServerFn(discoverContacts);
   const runReferrerDiscovery = useServerFn(discoverReferrers);
-  const [background, setBackground] = useApplicantBackground();
-  const [schools, setSchools] = useApplicantSchools();
-  const schoolList = useMemo(() => parseSchools(schools), [schools]);
+  /*
+   * Background and schools now live on the profile, so they survive a browser
+   * change and are edited in one place instead of per job target.
+   */
+  const { query: profileQuery } = useProfile(user?.id);
+  const schoolList = useMemo(() => profileQuery.data?.schools ?? [], [profileQuery.data]);
 
   useEffect(() => {
     if (!loading && !user) navigate({ to: "/auth" });
@@ -309,38 +268,41 @@ function TargetPage() {
           bodyClassName="bg-w95-face p-4"
         >
           <div className="space-y-3">
+            {/*
+              Editing moved to /profile: one place for applicant data instead of
+              a copy per job target, and it now survives a browser change.
+            */}
             <GroupBox label="About you" className="bg-w95-face">
-              <p className="mb-2 text-[11px] text-black">
-                The drafts can only state what you put here. Leave it empty and every personal
-                detail comes back as a <span className="font-mono">[bracketed blank]</span> for you
-                to fill in — the model is instructed never to invent your background.
-              </p>
-              <Textarea
-                id="applicant-background"
-                rows={4}
-                value={background}
-                onChange={(e) => setBackground(e.target.value)}
-                placeholder="e.g. 4 years backend Go at a fintech; led the payments migration; graduating MSc CS June 2026…"
-              />
-
-              <label
-                htmlFor="applicant-schools"
-                className="mt-3 mb-1 block text-[11px] font-bold text-black"
-              >
-                Your schools — one per line
-              </label>
-              <p className="mb-2 text-[11px] text-black">
-                Used only to build alumni search links below. Add abbreviations as their own line if
-                you use them, for example “UCSD” under “University of California, San Diego” — they
-                are never guessed for you.
-              </p>
-              <Textarea
-                id="applicant-schools"
-                rows={3}
-                value={schools}
-                onChange={(e) => setSchools(e.target.value)}
-                placeholder={"University of California, San Diego\nUCSD"}
-              />
+              {profileQuery.isLoading ? (
+                <p className="text-[11px] text-black">Loading your profile…</p>
+              ) : profileQuery.isError ? (
+                <p className="text-[11px] text-black">
+                  Couldn&apos;t load your profile, so drafts will use bracketed blanks.
+                </p>
+              ) : profileQuery.data && !isProfileEmpty(profileQuery.data) ? (
+                <p className="text-[11px] text-black">
+                  Drafts use your saved background.{" "}
+                  {[
+                    profileQuery.data.education && "education",
+                    profileQuery.data.skills.length && `${profileQuery.data.skills.length} skills`,
+                    profileQuery.data.experience.length &&
+                      `${profileQuery.data.experience.length} entries`,
+                    profileQuery.data.schools.length &&
+                      `${profileQuery.data.schools.length} schools`,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </p>
+              ) : (
+                <p className="text-[11px] text-black">
+                  Nothing saved yet, so every personal detail comes back as a{" "}
+                  <span className="font-mono">[bracketed blank]</span>. The model is instructed
+                  never to invent your background.
+                </p>
+              )}
+              <Button size="sm" variant="secondary" className="mt-2" asChild>
+                <Link to="/profile">Edit your profile</Link>
+              </Button>
             </GroupBox>
 
             {schoolList.length > 0 && target.data?.company && (
@@ -381,7 +343,6 @@ function TargetPage() {
               hint="People whose job is to receive applications."
               emptyHint="None yet — choose “Find recruiters”."
               contacts={recruiters}
-              background={background}
               purpose="application"
             />
 
@@ -390,7 +351,6 @@ function TargetPage() {
               hint="Senior people on the hiring team. A referral from here carries more weight than a cold application — but it is a favour, so ask on LinkedIn and only where you have a real reason."
               emptyHint="None yet — choose “Find referrers”."
               contacts={referrers}
-              background={background}
               purpose="referral"
             />
           </div>
@@ -420,14 +380,12 @@ function ContactSection({
   hint,
   emptyHint,
   contacts,
-  background,
   purpose,
 }: {
   heading: string;
   hint: string;
   emptyHint: string;
   contacts: ContactRow[];
-  background: string;
   purpose: "application" | "referral";
 }) {
   return (
@@ -441,7 +399,7 @@ function ContactSection({
       ) : (
         <div className="space-y-3">
           {contacts.map((c) => (
-            <ContactCard key={c.id} contact={c} background={background} purpose={purpose} />
+            <ContactCard key={c.id} contact={c} purpose={purpose} />
           ))}
         </div>
       )}
@@ -451,11 +409,9 @@ function ContactSection({
 
 function ContactCard({
   contact,
-  background,
   purpose,
 }: {
   contact: ContactRow;
-  background: string;
   purpose: "application" | "referral";
 }) {
   const draft = useServerFn(draftOutreach);
@@ -477,9 +433,6 @@ function ContactCard({
           contactId: contact.id,
           channel,
           purpose,
-          // Omitted entirely when blank, so the server prompt takes its
-          // "nothing is known about this applicant" branch.
-          ...(background.trim() ? { extra: background.trim() } : {}),
         },
       }),
     onSuccess: (row) => {

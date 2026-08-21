@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Radar, LogOut } from "lucide-react";
+import { Radar, LogOut, UserCog } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
 function Clock() {
@@ -47,6 +47,15 @@ export function AppHeader({ email }: { email?: string | null }) {
           </span>
         ) : null}
       </div>
+
+      {email ? (
+        <Link
+          to="/profile"
+          className="bevel-out mr-1 flex shrink-0 items-center gap-1 px-2 py-[3px] text-[11px] text-black active:bevel-pressed"
+        >
+          <UserCog className="size-3" /> About you
+        </Link>
+      ) : null}
 
       {email ? (
         <button

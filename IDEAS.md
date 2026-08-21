@@ -4,11 +4,66 @@
 
 <!-- Committed work with a clear shape — the things actually queued up to build. -->
 
+### Legal pages — now more pressing
+
+The app already stored third-party personal data: recruiter names, titles,
+profile URLs and published email addresses. As of the structured profile it
+also stores the **user's own** employment history, education and skills.
+
+That changes the shape of the obligation. A privacy policy, terms, and a
+route for a recruiter to request deletion of their data were already needed;
+storing a user's own resume data adds their right to export and delete it too.
+
+Not built this session by explicit decision, but it is no longer a
+nice-to-have — it is the item that scales worst with every additional user.
+
 ## Someday
 
 <!-- Worth doing eventually, but not scoped or scheduled yet. -->
 
 ## Rejected and why
+
+### Resume upload with PDF text extraction
+
+Upload a PDF, extract the text, pre-fill the profile fields for the user to
+correct. Saves retyping a resume into structured fields.
+
+**It works. It does not fit.** Measured in the real Workers runtime via
+`wrangler dev --local`, not inferred from documentation.
+
+Extraction itself is comfortable. `unpdf` runs on Workers and is fast:
+
+| PDF                      | Pages | Extracted    | Wall        |
+| ------------------------ | ----- | ------------ | ----------- |
+| Synthetic 3-page resume  | 3     | 4,997 chars  | 3–4 ms warm |
+| Real PDF, embedded fonts | 1     | 14 chars     | 6 ms        |
+| arXiv paper, 2.2 MB      | 15    | 39,605 chars | 199 ms      |
+
+A one or two page resume would be well under 50 ms. CPU was never the
+constraint.
+
+**The bundle is.** Measured by forcing the library into the actual app build:
+
+|                         | gzipped      |
+| ----------------------- | ------------ |
+| Worker today            | 563 KB       |
+| With `unpdf`            | **1,096 KB** |
+| Workers free-tier limit | **1,024 KB** |
+
+72 KB over. The deploy fails outright, and trimming under the line would leave
+zero headroom for anything built afterwards.
+
+Worth recording how nearly this was measured wrong. Three consecutive
+measurements reported "563 KB, no change" and all three were false: the probe
+was tree-shaken twice as an unused export, and once a source edit silently
+missed because an earlier refactor had changed the indentation the pattern
+matched on. A number that does not move when it should is worth distrusting.
+
+**What would justify revisiting:** Workers Paid, which raises the limit to
+10 MB and where this fits with room to spare. That is a $5/month decision
+rather than a technical one, and it contradicts the free-tier constraint the
+whole project is built on. Shipped instead: manual entry into structured
+fields.
 
 ### Posting staleness detection
 

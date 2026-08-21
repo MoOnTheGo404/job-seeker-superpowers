@@ -172,17 +172,32 @@ export type Database = {
       profiles: {
         Row: {
           created_at: string;
+          education: string;
+          experience: Json;
+          notes: string;
+          schools: string[];
+          skills: string[];
           email: string | null;
           full_name: string | null;
           id: string;
         };
         Insert: {
+          education?: string;
+          experience?: Json;
+          notes?: string;
+          schools?: string[];
+          skills?: string[];
           created_at?: string;
           email?: string | null;
           full_name?: string | null;
           id: string;
         };
         Update: {
+          education?: string;
+          experience?: Json;
+          notes?: string;
+          schools?: string[];
+          skills?: string[];
           created_at?: string;
           email?: string | null;
           full_name?: string | null;

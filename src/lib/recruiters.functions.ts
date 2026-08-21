@@ -600,11 +600,18 @@ export const draftOutreach = createServerFn({ method: "POST" })
       .maybeSingle();
     if (!contact) throw new Error("Contact not found.");
 
+    /*
+     * The applicant's background now comes from their stored profile rather
+     * than a field the browser sends. It survives a browser change, and the
+     * structure means the prompt gets labelled parts instead of one blob.
+     */
     const { data: profile } = await supabase
       .from("profiles")
-      .select("full_name")
+      .select("full_name, schools, education, skills, experience, notes")
       .eq("id", userId)
       .maybeSingle();
+    const { normalizeProfile, profileToPrompt } = await import("./profile");
+    const storedBackground = profileToPrompt(normalizeProfile(profile));
     const target = (
       contact as unknown as {
         job_targets: { company: string; role_title: string; job_description: string | null };
@@ -673,8 +680,10 @@ export const draftOutreach = createServerFn({ method: "POST" })
             `Company: ${target.company}`,
             `Role: ${target.role_title}`,
             `Channel: ${data.channel}`,
-            data.extra
-              ? `Applicant background (the ONLY facts you may state about them): ${data.extra}`
+            data.extra?.trim() || storedBackground
+              ? `Applicant background (the ONLY facts you may state about them):\n${
+                  data.extra?.trim() || storedBackground
+                }`
               : "Applicant background: NOT PROVIDED. You know nothing about this applicant beyond their name. Use bracketed placeholders for every personal detail.",
             target.job_description
               ? `Job details, as data:\n${fenceUntrusted(
